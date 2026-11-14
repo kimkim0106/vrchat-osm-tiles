@@ -17,7 +17,17 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v1/<地域>/tiles/<z>/<x>/<y>.png
 
 `v1` は VMT-DT の形式の版です (manifest と index.json の `version`、テクスチャのヘッダ列 1 と同じ番号)。
 ワールドの読み方が変わる変更は形式の版を上げて次のディレクトリに出し、古い版も配り続けます。
-データの更新 (OSM の取り直し) では版を変えません。同じ URL のまま中身が新しくなり、既存のワールドにも届きます。
+
+## 焼いた地域は固定する
+
+ワールドは作るときに manifest の頂点数を焼き込みます。同じ URL の中身を焼き直すと、頂点が増えたタイルで三角形が欠けます
+(同じ日に OSM を取り直しただけでも、東京 563 枚のうち 10 枚で増えた)。そのため、一度焼いた地域は勝手に焼き直しません。
+
+- 焼いた地域は Release (タグ = 版。[v1](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v1)) に `<地域>.tar.gz` として保存します。
+- Actions は毎回すべての版の Release を戻し、まだ無い地域だけを焼いて足します。スクリプトを直して push しても、焼いた地域は変わりません。
+- `regions.json` から消しても、Release に残っている地域は配り続けます (古いワールドのため)。止めるには Release のファイルを消します。
+- OSM のデータを新しくするときは、Actions を手動実行して `rebuild` に地域名 (または `all`) を入れます。
+  その地域を使うワールドは、新しい manifest で床マップやボードを作り直して上げ直してください。
 
 | 版 | 中身 |
 |---|---|
@@ -37,7 +47,7 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 
 ## 地域を足す
 
-`regions.json` に足して main に push すると、Actions が焼いて配ります。
+`regions.json` に足して main に push すると、Actions がその地域だけ焼いて Release に保存し、配ります。
 
 ```json
 {"name": "osaka", "title": "大阪", "area": "kansai", "bbox": "135.40,34.60,135.60,34.75", "zooms": "10-14", "lang": "ja"}
@@ -59,6 +69,7 @@ curl -fsSL -o build/tools/NotoSansCJK-Regular.ttc https://github.com/notofonts/n
 ```
 
 既にある MBTiles を使うときは `--mbtiles tokyo=path/to/tokyo.mbtiles`、試しに一部のズームだけ焼くときは `--zooms 10-11`。
+Release の地域を手元に戻すには `gh release download v1 -p '*.tar.gz'` で取って `site/` に展開し、`build_site.py --site site --index-only` で索引を作ります。
 
 配信を確かめる:
 
@@ -70,8 +81,8 @@ python3 check_site.py https://kimkim0106.github.io/vrchat-osm-tiles/
 
 `vmt_bake.py` の先頭に VMT-DT の形式が書いてあります。形式の版は `vmt_bake.py` と `build_site.py` の
 `FORMAT_VERSION`、描く側のシェーダーの 3 か所で合っている必要があります (`build_site.py` は焼いた manifest の版が違うと止まる)。
-Pages はデプロイのたびにサイト全体を入れ替えるので、v2 を出した後も v1 を毎回いっしょに焼く必要があります
-(v1 の焼き方を固定する方法は v2 を作るときに決める)。
+Pages はデプロイのたびにサイト全体を入れ替えますが、Actions は毎回すべての版の Release を戻すので、
+v2 を出した後も v1 は焼き直さずにそのまま配り続けられます。
 
 ## ライセンス
 

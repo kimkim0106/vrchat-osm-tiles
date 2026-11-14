@@ -1,5 +1,9 @@
 name: タイルを焼いて Pages に配る
 
+# 焼いた地域は Release (タグ = 版、例 v1) に <地域>.tar.gz として保存し、次からはそれを戻して配る。
+# ワールドは manifest の頂点数を焼き込むので、同じ URL の中身を勝手に焼き直さない。
+# 焼くのは「まだ Release に無い地域」と「手動実行で rebuild に指定した地域」だけ。
+
 on:
   push:
     branches: [main]
@@ -11,6 +15,11 @@ on:
       - requirements.txt
       - .github/workflows/pages.yml
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "焼き直す地域 (カンマ区切り、all で全部)。焼き直すと、その地域を使う既存のワールドは manifest を入れ替えて上げ直す必要がある"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -29,28 +38,62 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: write   # Release に焼いた地域を保存する
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REBUILD: ${{ inputs.rebuild }}
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.15"
           cache: pip
 
-      - run: pip install -r requirements.txt
+      - name: 保存してある地域を戻す
+        id: plan
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p site dl
+          dist=$(python -c 'import build_site; print(build_site.DIST)')
+          for tag in $(gh release list --limit 100 --json tagName --jq '.[].tagName | select(test("^v[0-9]+$"))'); do
+            gh release download "$tag" --dir "dl/$tag" --pattern '*.tar.gz'
+            for f in dl/"$tag"/*.tar.gz; do
+              echo "restore $f"
+              tar -xzf "$f" -C site
+            done
+          done
+          build=""
+          for n in $(python -c 'import json; print(" ".join(r["name"] for r in json.load(open("regions.json"))["regions"]))'); do
+            if [ "$REBUILD" = all ] || [[ ",${REBUILD// /}," == *",$n,"* ]] || [ ! -f "site/$dist/$n/manifest.json" ]; then
+              build="$build $n"
+            fi
+          done
+          build="${build# }"
+          echo "焼く地域: ${build:-なし}"
+          echo "dist=$dist" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
-      - name: 道具のキャッシュ
+      - if: steps.plan.outputs.build != ''
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - if: steps.plan.outputs.build != ''
+        run: pip install -r requirements.txt
+
+      - if: steps.plan.outputs.build != ''
+        name: 道具のキャッシュ
         uses: actions/cache@v6
         with:
           path: build/tools
           key: tools-planetiler-${{ env.PLANETILER_VERSION }}-noto-${{ env.NOTO_TAG }}
 
-      - name: planetiler とフォントを取ってくる
+      - if: steps.plan.outputs.build != ''
+        name: planetiler とフォントを取ってくる
         run: |
           mkdir -p build/tools
           cd build/tools
@@ -60,17 +103,33 @@ jobs:
             "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
           printf '%s  planetiler.jar\n%s  NotoSansCJK-Regular.ttc\n' "$PLANETILER_SHA256" "$NOTO_SHA256" | sha256sum -c -
 
-      # OSM の元データ (Geofabrik の pbf と海岸線など、約 2 GB)。月が替わると取り直す
-      - id: month
-        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
-      - name: 元データのキャッシュ
-        uses: actions/cache@v6
-        with:
-          path: build/sources
-          key: sources-${{ hashFiles('regions.json') }}-${{ steps.month.outputs.month }}
+      - if: steps.plan.outputs.build != ''
+        name: 地域を焼く
+        env:
+          BUILD: ${{ steps.plan.outputs.build }}
+        run: |
+          set -euo pipefail
+          args=()
+          for n in $BUILD; do args+=(--only "$n"); done
+          python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" "${args[@]}"
 
-      - name: 地図を焼く
-        run: python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)"
+      - if: steps.plan.outputs.build != ''
+        name: 焼いた地域を Release に保存する
+        env:
+          BUILD: ${{ steps.plan.outputs.build }}
+          DIST: ${{ steps.plan.outputs.dist }}
+        run: |
+          set -euo pipefail
+          gh release view "$DIST" >/dev/null 2>&1 || gh release create "$DIST" --target "$GITHUB_SHA" \
+            --title "$DIST の地域" --notes "VMT-DT $DIST で焼いた地域。<地域>.tar.gz を site/ に展開すると $DIST/<地域>/ になる。Actions がこれを戻して Pages に配る。"
+          mkdir -p pack
+          for n in $BUILD; do
+            tar -czf "pack/$n.tar.gz" -C site "$DIST/$n"
+            gh release upload "$DIST" "pack/$n.tar.gz" --clobber
+          done
+
+      - name: 索引を作る
+        run: python build_site.py --site site --index-only
 
       - uses: actions/upload-pages-artifact@v5
         with:

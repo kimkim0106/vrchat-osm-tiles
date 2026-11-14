@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """build_site.py - regions.json の地域ごとに MBTiles を作り、VMT-DT のタイルに焼いて site/ にまとめる。
 
-  site/index.html                     人が見る用の一覧と帰属表示
-  site/v1/index.json                  地域の一覧 (String Loading で読む想定)
+  site/index.html                     人が見る用の一覧と帰属表示 (すべての版)
+  site/v1/index.json                  その版の地域の一覧 (String Loading で読む想定)
   site/v1/<name>/manifest.json        vmt_bake.py の manifest
+  site/v1/<name>/region.json          index.json に載せる情報 (焼いた日時とコミットを含む)
   site/v1/<name>/tiles/z/x/y.png      タイル
   site/v1/<name>/selftest.png
 
@@ -11,17 +12,24 @@ v1 は VMT-DT の形式の版 (vmt_bake.py の FORMAT_VERSION、manifest の ver
 ワールドが焼き込む URL に入るので、読み方の変わる変更 (複数タイルを 1 枚にまとめる、など) は形式の版を上げて
 別のディレクトリ (v2) に出し、古い版も配り続ける。
 
+焼いた地域は固定する。ワールドは作るときに manifest の頂点数を焼き込むので、同じ URL の中身を焼き直すと
+頂点が増えたタイルで三角形が欠ける。Actions は焼いた地域を Release (タグ = 版) に保存し、次からはそれを戻して配る。
+焼き直すのは、まだ焼いていない地域と、手で指定した地域だけ。
+
 使い方 (手元):
   python build_site.py --tools build/tools --work build --site site --jobs 4
   python build_site.py ... --only tokyo --mbtiles tokyo=path/to/tokyo.mbtiles   # 既存の MBTiles を使う
+  python build_site.py --site site --index-only                                  # 置いてある地域から索引だけ作る
 
 --tools には planetiler.jar と NotoSansCJK-Regular.ttc を置く。
 """
 import argparse
 import datetime
+import glob
 import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +38,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FORMAT = "VMT-DT"
 FORMAT_VERSION = 1             # vmt_bake.py の FORMAT_VERSION と同じにする (焼いた manifest で確かめる)
 DIST = f"v{FORMAT_VERSION}"    # URL のディレクトリ
+SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def run(cmd):
@@ -44,6 +57,27 @@ def build_mbtiles(region, tools, work, java_mem):
          f"--download_dir={os.path.join(work, 'sources')}", f"--tmpdir={os.path.join(work, 'tmp')}",
          f"--output={out}", "--force"])
     return out
+
+
+def region_entry(region, manifest):
+    """index.json に載せる 1 地域分。region.json として地域のディレクトリにも置く。"""
+    return {
+        "name": region["name"],
+        "title": region.get("title", region["name"]),
+        "bbox": [float(v) for v in region["bbox"].split(",")],
+        "zooms": region["zooms"],
+        "manifest": f"{region['name']}/manifest.json",
+        "tiles": len(manifest["tiles"]),
+        "pngBytes": sum(t["pngBytes"] for t in manifest["tiles"]),
+        "attribution": manifest.get("attribution", ""),
+        "built": now(),
+        "commit": os.environ.get("GITHUB_SHA", ""),
+    }
+
+
+def write_region_json(out, entry):
+    with open(os.path.join(out, "region.json"), "w", encoding="utf-8") as f:
+        json.dump(entry, f, ensure_ascii=False, indent=1)
 
 
 def bake(region, mbtiles, tools, site, jobs):
@@ -65,53 +99,67 @@ def bake(region, mbtiles, tools, site, jobs):
         json.dump(m, f, ensure_ascii=False, indent=1)
     if m.get("version") != FORMAT_VERSION:
         sys.exit(f"{region['name']}: manifest の version {m.get('version')} が {FORMAT_VERSION} と違う")
-    return {
-        "name": region["name"],
-        "title": region.get("title", region["name"]),
-        "bbox": [float(v) for v in region["bbox"].split(",")],
-        "zooms": region["zooms"],
-        "manifest": f"{region['name']}/manifest.json",
-        "tiles": len(m["tiles"]),
-        "pngBytes": sum(t["pngBytes"] for t in m["tiles"]),
-        "attribution": m.get("attribution", ""),
-    }
+    write_region_json(out, region_entry(region, m))
 
 
-def write_index(site, entries):
-    index = {
-        "format": FORMAT,
-        "version": FORMAT_VERSION,
-        "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "commit": os.environ.get("GITHUB_SHA", ""),
-        "regions": entries,
-    }
-    with open(os.path.join(site, DIST, "index.json"), "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, indent=1)
+def dist_dirs(site):
+    """site/ にある版のディレクトリ (v1, v2, ...) を番号順に返す。"""
+    found = []
+    for d in glob.glob(os.path.join(site, "v*")):
+        m = re.fullmatch(r"v(\d+)", os.path.basename(d))
+        if m and os.path.isdir(d):
+            found.append((int(m.group(1)), os.path.basename(d)))
+    return [name for _, name in sorted(found)]
 
-    rows = "\n".join(
-        f"<tr><td>{html.escape(e['title'])}</td>"
-        f"<td><a href=\"{DIST}/{html.escape(e['manifest'])}\">{DIST}/{html.escape(e['name'])}</a></td>"
-        f"<td>{e['zooms']}</td><td>{e['tiles']}</td><td>{e['pngBytes'] / 1e6:.1f} MB</td></tr>"
-        for e in entries)
-    attributions = sorted({e["attribution"] for e in entries if e["attribution"]})
+
+def write_indexes(site):
+    """置いてある地域 (region.json) から、版ごとの index.json と全体の index.html を作る。"""
+    generated = now()
+    sections = []
+    total = 0
+    for dist in dist_dirs(site):
+        entries = []
+        for path in sorted(glob.glob(os.path.join(site, dist, "*", "region.json"))):
+            with open(path, encoding="utf-8") as f:
+                entries.append(json.load(f))
+        index = {"format": FORMAT, "version": int(dist[1:]), "generated": generated,
+                 "commit": os.environ.get("GITHUB_SHA", ""), "regions": entries}
+        with open(os.path.join(site, dist, "index.json"), "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False, indent=1)
+        total += sum(e["pngBytes"] for e in entries)
+        sections.append((dist, entries))
+        print(f"{dist}: {len(entries)} regions ({', '.join(e['name'] for e in entries)})")
+
+    blocks = []
+    attributions = set()
+    for dist, entries in sections:
+        rows = "\n".join(
+            f"<tr><td>{html.escape(e['title'])}</td>"
+            f"<td><a href=\"{dist}/{html.escape(e['manifest'])}\">{dist}/{html.escape(e['name'])}</a></td>"
+            f"<td>{html.escape(e['zooms'])}</td><td>{e['tiles']}</td><td>{e['pngBytes'] / 1e6:.1f} MB</td>"
+            f"<td>{html.escape(e.get('built', '')[:10])}</td></tr>"
+            for e in entries)
+        attributions.update(e["attribution"] for e in entries if e["attribution"])
+        blocks.append(f"""<h2>形式 VMT-DT {dist[1:]} (<a href="{dist}/index.json">{dist}/index.json</a>)</h2>
+<table><tr><th>地域</th><th>manifest</th><th>ズーム</th><th>タイル</th><th>容量</th><th>焼いた日</th></tr>
+{rows}
+</table>""")
     page = f"""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vrchat-osm-tiles</title>
-<style>body{{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;line-height:1.6}}
+<style>body{{font-family:system-ui,sans-serif;max-width:50rem;margin:2rem auto;padding:0 1rem;line-height:1.6}}
 table{{border-collapse:collapse}}td,th{{border-bottom:1px solid #ccc;padding:.25rem .75rem;text-align:left}}</style></head>
 <body><h1>vrchat-osm-tiles</h1>
 <p>VRChat のワールドで地図を描くためのデータテクスチャです。画像として見るものではありません。</p>
-<p>形式 VMT-DT {FORMAT_VERSION}: <a href="{DIST}/index.json">{DIST}/index.json</a></p>
-<table><tr><th>地域</th><th>manifest</th><th>ズーム</th><th>タイル</th><th>容量</th></tr>
-{rows}
-</table>
-<p>地図データ: {html.escape(" / ".join(attributions) or "© OpenStreetMap contributors")}
+{chr(10).join(blocks)}
+<p>地図データ: {html.escape(" / ".join(sorted(attributions)) or "© OpenStreetMap contributors")}
 (<a href="https://www.openstreetmap.org/copyright">ODbL</a>)。文字: Noto Sans CJK (SIL Open Font License 1.1)。</p>
-<p>生成: {index['generated']}</p>
+<p>生成: {generated}</p>
 </body></html>
 """
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as f:
         f.write(page)
+    return total
 
 
 def main():
@@ -125,31 +173,36 @@ def main():
     ap.add_argument("--only", action="append", help="この名前の地域だけ焼く (複数可)")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。planetiler を回さずこの MBTiles を使う")
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
+    ap.add_argument("--index-only", action="store_true", help="焼かずに、置いてある地域から索引だけ作る")
     args = ap.parse_args()
-
-    with open(args.regions, encoding="utf-8") as f:
-        regions = json.load(f)["regions"]
-    names = [r["name"] for r in regions]
-    if len(set(names)) != len(names):
-        sys.exit("regions.json の name が重複している")
-    given = dict(s.split("=", 1) for s in args.mbtiles)
     os.makedirs(args.site, exist_ok=True)
-    os.makedirs(args.work, exist_ok=True)
 
-    entries = []
-    for r in regions:
-        if args.only and r["name"] not in args.only:
-            continue
-        if args.zooms:
-            r = dict(r, zooms=args.zooms)
-        mbtiles = given.get(r["name"]) or build_mbtiles(r, args.tools, args.work, args.java_mem)
-        entries.append(bake(r, mbtiles, args.tools, args.site, args.jobs))
-    if not entries:
-        sys.exit("焼く地域がない")
-    write_index(args.site, entries)
-    total = sum(e["pngBytes"] for e in entries)
-    print(f"{len(entries)} regions, {sum(e['tiles'] for e in entries)} tiles, {total / 1e6:.1f} MB -> {args.site}")
-    if total > 900e6:
+    if not args.index_only:
+        with open(args.regions, encoding="utf-8") as f:
+            regions = json.load(f)["regions"]
+        names = [r["name"] for r in regions]
+        if len(set(names)) != len(names):
+            sys.exit("regions.json の name が重複している")
+        unknown = set(args.only or []) - set(names)
+        if unknown:
+            sys.exit(f"regions.json に無い地域: {', '.join(sorted(unknown))}")
+        given = dict(s.split("=", 1) for s in args.mbtiles)
+        os.makedirs(args.work, exist_ok=True)
+        baked = 0
+        for r in regions:
+            if args.only and r["name"] not in args.only:
+                continue
+            if args.zooms:
+                r = dict(r, zooms=args.zooms)
+            mbtiles = given.get(r["name"]) or build_mbtiles(r, args.tools, args.work, args.java_mem)
+            bake(r, mbtiles, args.tools, args.site, args.jobs)
+            baked += 1
+        if not baked:
+            sys.exit("焼く地域がない")
+
+    total = write_indexes(args.site)
+    print(f"site total {total / 1e6:.1f} MB -> {args.site}")
+    if total > SITE_LIMIT:
         sys.exit("GitHub Pages のサイトは 1 GB まで。地域かズームを減らす")
 
 
