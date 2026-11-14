@@ -24,6 +24,10 @@ v2 は v1 から作る (vmt_pack.py) ので、v1 を焼き直さない限り v2 
   python build_site.py ... --only tokyo --mbtiles tokyo=path/to/tokyo.mbtiles   # 既存の MBTiles を使う
   python build_site.py --site site --pack tokyo                                  # v1 の tokyo から v2 を作る
   python build_site.py --site site --index-only                                  # 置いてある地域から索引だけ作る
+  python build_site.py --site site --index-only --prune                          # 配らない版を外してから索引を作る
+
+regions.json の地域に "dists": ["v2"] があれば、その版だけを配る (--prune が他の版のディレクトリを site/ から外す)。
+v2 は v1 から作るので v1 も焼いて Release には保存するが、Pages には載せない (サイトの容量を空けるため)。
 
 --tools には planetiler.jar と NotoSansCJK-Regular.ttc を置く。
 """
@@ -126,6 +130,19 @@ def pack(region, site):
     write_region_json(out, region_entry(region, m))
 
 
+def prune(site, regions):
+    """dists を指定した地域の、配らない版のディレクトリを site/ から外す (Release に保存した後で呼ぶ)。"""
+    for r in regions:
+        dists = r.get("dists")
+        if dists is None:
+            continue
+        for dist in dist_dirs(site):
+            out = os.path.join(site, dist, r["name"])
+            if dist not in dists and os.path.isdir(out):
+                print(f"{r['name']}: {dist} は配らない ({out} を外す)")
+                shutil.rmtree(out)
+
+
 def dist_dirs(site):
     """site/ にある版のディレクトリ (v1, v2, ...) を番号順に返す。"""
     found = []
@@ -200,6 +217,7 @@ def main():
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
     ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
     ap.add_argument("--index-only", action="store_true", help="焼かずに、置いてある地域から索引だけ作る")
+    ap.add_argument("--prune", action="store_true", help="regions.json の dists に無い版を site/ から外す (Release に保存した後で)")
     args = ap.parse_args()
     os.makedirs(args.site, exist_ok=True)
 
@@ -208,6 +226,10 @@ def main():
     names = [r["name"] for r in regions]
     if len(set(names)) != len(names):
         sys.exit("regions.json の name が重複している")
+    for r in regions:
+        bad = set(r.get("dists") or []) - set(DISTS)
+        if bad:
+            sys.exit(f"{r['name']}: dists に知らない版 {', '.join(sorted(bad))}")
     unknown = set(args.only or []) | set(args.pack)
     unknown -= set(names)
     if unknown:
@@ -232,6 +254,8 @@ def main():
         if not baked:
             sys.exit("焼く地域がない")
 
+    if args.prune:
+        prune(args.site, regions)
     total = write_indexes(args.site)
     print(f"site total {total / 1e6:.1f} MB -> {args.site}")
     if total > SITE_LIMIT:

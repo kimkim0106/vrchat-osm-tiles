@@ -158,8 +158,9 @@ jobs:
           [ -z "$BUILD" ] || save "$DIST" $BUILD
           [ -z "$PACK" ] || save "$SHEET_DIST" $PACK
 
+      # dists を指定した地域は、その版だけを配る (Release には全部の版を保存してある)
       - name: 索引を作る
-        run: python build_site.py --site site --index-only
+        run: python build_site.py --site site --index-only --prune
 
       - uses: actions/upload-pages-artifact@v5
         with:

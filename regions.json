@@ -10,6 +10,34 @@
    "binZooms": [
     13
    ]
+  },
+  {
+   "name": "kobe",
+   "title": "神戸",
+   "area": "kansai",
+   "bbox": "134.9670,34.4975,135.3845,34.8769",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ]
+  },
+  {
+   "name": "tokushima",
+   "title": "徳島",
+   "area": "shikoku",
+   "bbox": "134.3518,33.8795,134.7693,34.2618",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ]
   }
  ]
 }
