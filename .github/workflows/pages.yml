@@ -131,28 +131,9 @@ jobs:
             "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
           printf '%s  planetiler.jar\n%s  NotoSansCJK-Regular.ttc\n' "$PLANETILER_SHA256" "$NOTO_SHA256" | sha256sum -c -
 
-      - if: steps.plan.outputs.build != ''
-        name: 地域を焼く
-        env:
-          BUILD: ${{ steps.plan.outputs.build }}
-        run: |
-          set -euo pipefail
-          args=()
-          for n in $BUILD; do args+=(--only "$n"); done
-          python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" "${args[@]}"
-
-      - if: steps.plan.outputs.pack != ''
-        name: v1 をシートにまとめる (v2)
-        env:
-          PACK: ${{ steps.plan.outputs.pack }}
-        run: |
-          set -euo pipefail
-          args=()
-          for n in $PACK; do args+=(--pack "$n"); done
-          python build_site.py --site site "${args[@]}"
-
+      # 1 地域ずつ焼いて (v1)、まとめて (v2)、すぐ Release に保存する。途中で止まっても、保存した地域は次の実行で焼かない
       - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != ''
-        name: 作った地域を Release に保存する
+        name: 地域を焼いて Release に保存する
         env:
           BUILD: ${{ steps.plan.outputs.build }}
           PACK: ${{ steps.plan.outputs.pack }}
@@ -161,18 +142,26 @@ jobs:
         run: |
           set -euo pipefail
           save() {
-            local dist=$1; shift
+            local dist=$1 n=$2
             gh release view "$dist" >/dev/null 2>&1 || gh release create "$dist" --target "$GITHUB_SHA" \
               --title "$dist の地域" --notes "VMT-DT $dist の地域。<地域>.tar.gz を site/ に展開すると $dist/<地域>/ になる。Actions がこれを戻して Pages に配る。"
             mkdir -p "pack/$dist"
-            for n in "$@"; do
-              tar -czf "pack/$dist/$n.tar.gz" -C site "$dist/$n"
-              gh release upload "$dist" "pack/$dist/$n.tar.gz" --clobber
-              rm "pack/$dist/$n.tar.gz"
-            done
+            tar -czf "pack/$dist/$n.tar.gz" -C site "$dist/$n"
+            gh release upload "$dist" "pack/$dist/$n.tar.gz" --clobber
+            rm "pack/$dist/$n.tar.gz"
+            echo "$n: $dist を Release に保存した"
           }
-          [ -z "$BUILD" ] || save "$DIST" $BUILD
-          [ -z "$PACK" ] || save "$SHEET_DIST" $PACK
+          # PACK は BUILD を含む (v1 を焼いた地域は v2 も作り直す)
+          for n in $PACK; do
+            if [[ " $BUILD " == *" $n "* ]]; then
+              python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" --only "$n"
+              save "$DIST" "$n"
+              rm -f "build/$n.mbtiles"
+            fi
+            python build_site.py --site site --pack "$n"
+            save "$SHEET_DIST" "$n"
+            df -h / | tail -1
+          done
 
       # dists を指定した地域は、その版だけを配る (Release には全部の版を保存してある)
       # host が r2 の地域は r2site/ に移す (Pages には載せない)
