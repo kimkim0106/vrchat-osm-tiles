@@ -9,6 +9,10 @@
    "lang": "ja",
    "binZooms": [
     13
+   ],
+   "dists": [
+    "v2",
+    "v3"
    ]
   },
   {
