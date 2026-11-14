@@ -5,12 +5,15 @@
   site/v1/index.json                  その版の地域の一覧 (String Loading で読む想定)
   site/v1/<name>/manifest.json        vmt_bake.py の manifest
   site/v1/<name>/region.json          index.json に載せる情報 (焼いた日時とコミットを含む)
-  site/v1/<name>/tiles/z/x/y.png      タイル
+  site/v1/<name>/tiles/z/x/y.png      タイル (1 タイル = 1 画像)
   site/v1/<name>/selftest.png
+  site/v2/<name>/manifest.json        vmt_pack.py の manifest
+  site/v2/<name>/sheets/z/k.png       シート (複数タイル = 1 画像)。v1 のタイルをまとめたもので、中身は同じ
+  site/v2/<name>/sheets/z/k.bin       同じシートの生データ (regions.json の binZooms のズームだけ)
 
-v1 は VMT-DT の形式の版 (vmt_bake.py の FORMAT_VERSION、manifest の version、テクスチャのヘッダ列 1) と同じ番号。
-ワールドが焼き込む URL に入るので、読み方の変わる変更 (複数タイルを 1 枚にまとめる、など) は形式の版を上げて
-別のディレクトリ (v2) に出し、古い版も配り続ける。
+v1 / v2 は VMT-DT の形式の版 (manifest の version、テクスチャのヘッダ列 1) と同じ番号。
+ワールドが焼き込む URL に入るので、読み方の変わる変更は形式の版を上げて別のディレクトリに出し、古い版も配り続ける。
+v2 は v1 から作る (vmt_pack.py) ので、v1 を焼き直さない限り v2 のタイルも変わらない。
 
 焼いた地域は固定する。ワールドは作るときに manifest の頂点数を焼き込むので、同じ URL の中身を焼き直すと
 頂点が増えたタイルで三角形が欠ける。Actions は焼いた地域を Release (タグ = 版) に保存し、次からはそれを戻して配る。
@@ -19,6 +22,7 @@ v1 は VMT-DT の形式の版 (vmt_bake.py の FORMAT_VERSION、manifest の ver
 使い方 (手元):
   python build_site.py --tools build/tools --work build --site site --jobs 4
   python build_site.py ... --only tokyo --mbtiles tokyo=path/to/tokyo.mbtiles   # 既存の MBTiles を使う
+  python build_site.py --site site --pack tokyo                                  # v1 の tokyo から v2 を作る
   python build_site.py --site site --index-only                                  # 置いてある地域から索引だけ作る
 
 --tools には planetiler.jar と NotoSansCJK-Regular.ttc を置く。
@@ -37,7 +41,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 FORMAT = "VMT-DT"
 FORMAT_VERSION = 1             # vmt_bake.py の FORMAT_VERSION と同じにする (焼いた manifest で確かめる)
-DIST = f"v{FORMAT_VERSION}"    # URL のディレクトリ
+DIST = f"v{FORMAT_VERSION}"    # 焼いたタイルを置くディレクトリ
+SHEET_VERSION = 2              # vmt_pack.py の SHEET_VERSION
+SHEET_DIST = f"v{SHEET_VERSION}"
+DISTS = [DIST, SHEET_DIST]     # 配る版 (check_site.py が確かめる)
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
 
 
@@ -68,7 +75,9 @@ def region_entry(region, manifest):
         "zooms": region["zooms"],
         "manifest": f"{region['name']}/manifest.json",
         "tiles": len(manifest["tiles"]),
-        "pngBytes": sum(t["pngBytes"] for t in manifest["tiles"]),
+        "pngBytes": sum(t["pngBytes"] for t in manifest.get("sheets") or manifest["tiles"]),
+        "binBytes": sum(t.get("binBytes", 0) for t in manifest.get("sheets") or []),
+        "images": len(manifest.get("sheets") or manifest["tiles"]),
         "attribution": manifest.get("attribution", ""),
         "built": now(),
         "commit": os.environ.get("GITHUB_SHA", ""),
@@ -102,6 +111,21 @@ def bake(region, mbtiles, tools, site, jobs):
     write_region_json(out, region_entry(region, m))
 
 
+def pack(region, site):
+    """v1 の地域から v2 (シート) を作る。"""
+    src = os.path.join(site, DIST, region["name"])
+    out = os.path.join(site, SHEET_DIST, region["name"])
+    if not os.path.exists(os.path.join(src, "manifest.json")):
+        sys.exit(f"{region['name']}: {src} に v1 が無い (先に焼くか Release から戻す)")
+    zooms = ",".join(str(z) for z in region.get("binZooms", []))
+    run([sys.executable, os.path.join(HERE, "vmt_pack.py"), src, out] + (["--bin-zooms", zooms] if zooms else []))
+    with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    if m.get("version") != SHEET_VERSION:
+        sys.exit(f"{region['name']}: v2 の manifest の version が {SHEET_VERSION} ではない")
+    write_region_json(out, region_entry(region, m))
+
+
 def dist_dirs(site):
     """site/ にある版のディレクトリ (v1, v2, ...) を番号順に返す。"""
     found = []
@@ -126,7 +150,7 @@ def write_indexes(site):
                  "commit": os.environ.get("GITHUB_SHA", ""), "regions": entries}
         with open(os.path.join(site, dist, "index.json"), "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=1)
-        total += sum(e["pngBytes"] for e in entries)
+        total += sum(e["pngBytes"] + e.get("binBytes", 0) for e in entries)
         sections.append((dist, entries))
         print(f"{dist}: {len(entries)} regions ({', '.join(e['name'] for e in entries)})")
 
@@ -136,12 +160,13 @@ def write_indexes(site):
         rows = "\n".join(
             f"<tr><td>{html.escape(e['title'])}</td>"
             f"<td><a href=\"{dist}/{html.escape(e['manifest'])}\">{dist}/{html.escape(e['name'])}</a></td>"
-            f"<td>{html.escape(e['zooms'])}</td><td>{e['tiles']}</td><td>{e['pngBytes'] / 1e6:.1f} MB</td>"
+            f"<td>{html.escape(e['zooms'])}</td><td>{e['tiles']}</td><td>{e.get('images', e['tiles'])}</td>"
+            f"<td>{(e['pngBytes'] + e.get('binBytes', 0)) / 1e6:.1f} MB</td>"
             f"<td>{html.escape(e.get('built', '')[:10])}</td></tr>"
             for e in entries)
         attributions.update(e["attribution"] for e in entries if e["attribution"])
         blocks.append(f"""<h2>形式 VMT-DT {dist[1:]} (<a href="{dist}/index.json">{dist}/index.json</a>)</h2>
-<table><tr><th>地域</th><th>manifest</th><th>ズーム</th><th>タイル</th><th>容量</th><th>焼いた日</th></tr>
+<table><tr><th>地域</th><th>manifest</th><th>ズーム</th><th>タイル</th><th>画像</th><th>容量</th><th>焼いた日</th></tr>
 {rows}
 </table>""")
     page = f"""<!doctype html>
@@ -173,19 +198,26 @@ def main():
     ap.add_argument("--only", action="append", help="この名前の地域だけ焼く (複数可)")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。planetiler を回さずこの MBTiles を使う")
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
+    ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
     ap.add_argument("--index-only", action="store_true", help="焼かずに、置いてある地域から索引だけ作る")
     args = ap.parse_args()
     os.makedirs(args.site, exist_ok=True)
 
-    if not args.index_only:
-        with open(args.regions, encoding="utf-8") as f:
-            regions = json.load(f)["regions"]
-        names = [r["name"] for r in regions]
-        if len(set(names)) != len(names):
-            sys.exit("regions.json の name が重複している")
-        unknown = set(args.only or []) - set(names)
-        if unknown:
-            sys.exit(f"regions.json に無い地域: {', '.join(sorted(unknown))}")
+    with open(args.regions, encoding="utf-8") as f:
+        regions = json.load(f)["regions"]
+    names = [r["name"] for r in regions]
+    if len(set(names)) != len(names):
+        sys.exit("regions.json の name が重複している")
+    unknown = set(args.only or []) | set(args.pack)
+    unknown -= set(names)
+    if unknown:
+        sys.exit(f"regions.json に無い地域: {', '.join(sorted(unknown))}")
+
+    if args.pack:
+        for r in regions:
+            if r["name"] in args.pack:
+                pack(r, args.site)
+    elif not args.index_only:
         given = dict(s.split("=", 1) for s in args.mbtiles)
         os.makedirs(args.work, exist_ok=True)
         baked = 0

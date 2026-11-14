@@ -2,13 +2,15 @@ name: タイルを焼いて Pages に配る
 
 # 焼いた地域は Release (タグ = 版、例 v1) に <地域>.tar.gz として保存し、次からはそれを戻して配る。
 # ワールドは manifest の頂点数を焼き込むので、同じ URL の中身を勝手に焼き直さない。
-# 焼くのは「まだ Release に無い地域」と「手動実行で rebuild に指定した地域」だけ。
+# v1 (1 タイル = 1 画像) を焼くのは「まだ Release に無い地域」と「手動実行で rebuild に指定した地域」だけ。
+# v2 (シート) は v1 から作る。作るのは「まだ Release に無い地域」と「v1 を焼き直した地域」と「rebuild に指定した地域」。
 
 on:
   push:
     branches: [main]
     paths:
       - vmt_bake.py
+      - vmt_pack.py
       - build_site.py
       - check_site.py
       - regions.json
@@ -65,16 +67,27 @@ jobs:
               tar -xzf "$f" -C site
             done
           done
+          sheet_dist=$(python -c 'import build_site; print(build_site.SHEET_DIST)')
           build=""
+          pack=""
           for n in $(python -c 'import json; print(" ".join(r["name"] for r in json.load(open("regions.json"))["regions"]))'); do
-            if [ "$REBUILD" = all ] || [[ ",${REBUILD// /}," == *",$n,"* ]] || [ ! -f "site/$dist/$n/manifest.json" ]; then
+            forced=0
+            if [ "$REBUILD" = all ] || [[ ",${REBUILD// /}," == *",$n,"* ]]; then forced=1; fi
+            if [ $forced = 1 ] || [ ! -f "site/$dist/$n/manifest.json" ]; then
               build="$build $n"
+              pack="$pack $n"
+            elif [ ! -f "site/$sheet_dist/$n/manifest.json" ]; then
+              pack="$pack $n"
             fi
           done
           build="${build# }"
-          echo "焼く地域: ${build:-なし}"
+          pack="${pack# }"
+          echo "焼く地域 ($dist): ${build:-なし}"
+          echo "まとめる地域 ($sheet_dist): ${pack:-なし}"
           echo "dist=$dist" >> "$GITHUB_OUTPUT"
+          echo "sheet_dist=$sheet_dist" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "pack=$pack" >> "$GITHUB_OUTPUT"
 
       - if: steps.plan.outputs.build != ''
         uses: actions/setup-java@v6
@@ -82,7 +95,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - if: steps.plan.outputs.build != ''
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != ''
         run: pip install -r requirements.txt
 
       - if: steps.plan.outputs.build != ''
@@ -113,20 +126,37 @@ jobs:
           for n in $BUILD; do args+=(--only "$n"); done
           python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" "${args[@]}"
 
-      - if: steps.plan.outputs.build != ''
-        name: 焼いた地域を Release に保存する
+      - if: steps.plan.outputs.pack != ''
+        name: v1 をシートにまとめる (v2)
         env:
-          BUILD: ${{ steps.plan.outputs.build }}
-          DIST: ${{ steps.plan.outputs.dist }}
+          PACK: ${{ steps.plan.outputs.pack }}
         run: |
           set -euo pipefail
-          gh release view "$DIST" >/dev/null 2>&1 || gh release create "$DIST" --target "$GITHUB_SHA" \
-            --title "$DIST の地域" --notes "VMT-DT $DIST で焼いた地域。<地域>.tar.gz を site/ に展開すると $DIST/<地域>/ になる。Actions がこれを戻して Pages に配る。"
-          mkdir -p pack
-          for n in $BUILD; do
-            tar -czf "pack/$n.tar.gz" -C site "$DIST/$n"
-            gh release upload "$DIST" "pack/$n.tar.gz" --clobber
-          done
+          args=()
+          for n in $PACK; do args+=(--pack "$n"); done
+          python build_site.py --site site "${args[@]}"
+
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != ''
+        name: 作った地域を Release に保存する
+        env:
+          BUILD: ${{ steps.plan.outputs.build }}
+          PACK: ${{ steps.plan.outputs.pack }}
+          DIST: ${{ steps.plan.outputs.dist }}
+          SHEET_DIST: ${{ steps.plan.outputs.sheet_dist }}
+        run: |
+          set -euo pipefail
+          save() {
+            local dist=$1; shift
+            gh release view "$dist" >/dev/null 2>&1 || gh release create "$dist" --target "$GITHUB_SHA" \
+              --title "$dist の地域" --notes "VMT-DT $dist の地域。<地域>.tar.gz を site/ に展開すると $dist/<地域>/ になる。Actions がこれを戻して Pages に配る。"
+            mkdir -p "pack/$dist"
+            for n in "$@"; do
+              tar -czf "pack/$dist/$n.tar.gz" -C site "$dist/$n"
+              gh release upload "$dist" "pack/$dist/$n.tar.gz" --clobber
+            done
+          }
+          [ -z "$BUILD" ] || save "$DIST" $BUILD
+          [ -z "$PACK" ] || save "$SHEET_DIST" $PACK
 
       - name: 索引を作る
         run: python build_site.py --site site --index-only

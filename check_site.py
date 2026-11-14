@@ -2,7 +2,7 @@
 """check_site.py - 配信中のサイトを VRChat と同じ条件で確かめる。
 
 VRChat の Image Loading はリダイレクトを許さない (リダイレクトされるとエラー)。
-v<形式の版>/index.json、各地域の manifest.json、タイルの一部に HEAD / GET を送り、
+各版 (v1, v2, ...) の index.json、各地域の manifest.json、タイルの一部に HEAD / GET を送り、
 リダイレクトせずに 200 が返ること、タイルが image/png であることを確かめる。
 
   python check_site.py https://<user>.github.io/<repo>/
@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
-from build_site import DIST, FORMAT_VERSION
+from build_site import DISTS
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -47,6 +47,33 @@ def check(url, method, want_type, retries):
     sys.exit(f"NG {url}: {code} {ctype}")
 
 
+def check_dist(base, version):
+    """1 つの版の index.json と、各地域の manifest、画像の一部 (と生データ) を確かめる。"""
+    index = json.loads(check(base + "index.json", "GET", "application/json", 12))
+    if index.get("version") != version:
+        sys.exit(f"NG {base}index.json: version {index.get('version')} が {version} と違う")
+    print(f"OK {base}index.json ({len(index['regions'])} regions, {index.get('commit', '')[:7]})")
+    for region in index["regions"]:
+        murl = base + region["manifest"]
+        manifest = json.loads(check(murl, "GET", "application/json", 6))
+        print(f"OK {murl}")
+        root = murl.rsplit("/", 1)[0] + "/"
+        images = manifest.get("sheets") or manifest["tiles"]  # 形式 2 はシート、1 はタイル
+        picks = {0, len(images) // 2, len(images) - 1}
+        if "sheets" not in manifest:
+            for lv in manifest["levels"]:
+                picks.add(lv["offset"])
+        for i in sorted(picks):
+            url = root + images[i]["png"]
+            check(url, "HEAD", "image/png", 6)
+            print(f"OK {url}")
+        bins = [s for s in manifest.get("sheets") or [] if s.get("bin")]
+        for s in bins[:1] + bins[-1:]:
+            url = root + s["bin"]
+            check(url, "HEAD", "application/octet-stream", 6)
+            print(f"OK {url}")
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -55,25 +82,8 @@ def main():
         sys.exit("https:// の URL を渡す (http:// は https:// にリダイレクトされる)")
     if not base.endswith("/"):
         base += "/"
-    base += DIST + "/"
-
-    index = json.loads(check(base + "index.json", "GET", "application/json", 12))
-    if index.get("version") != FORMAT_VERSION:
-        sys.exit(f"NG {base}index.json: version {index.get('version')} が {FORMAT_VERSION} と違う")
-    print(f"OK {base}index.json ({len(index['regions'])} regions, {index.get('commit', '')[:7]})")
-    for region in index["regions"]:
-        murl = base + region["manifest"]
-        manifest = json.loads(check(murl, "GET", "application/json", 6))
-        print(f"OK {murl}")
-        root = murl.rsplit("/", 1)[0] + "/"
-        tiles = manifest["tiles"]
-        picks = {0, len(tiles) // 2, len(tiles) - 1}
-        for lv in manifest["levels"]:
-            picks.add(lv["offset"])
-        for i in sorted(picks):
-            url = root + tiles[i]["png"]
-            check(url, "HEAD", "image/png", 6)
-            print(f"OK {url}")
+    for dist in DISTS:
+        check_dist(base + dist + "/", int(dist[1:]))
     print("すべてリダイレクトなしで 200")
 
 

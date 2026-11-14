@@ -10,12 +10,16 @@ GitHub Pages で配るリポジトリです。タイルは見た目は画像で�
 https://kimkim0106.github.io/vrchat-osm-tiles/v1/index.json                  地域の一覧
 https://kimkim0106.github.io/vrchat-osm-tiles/v1/<地域>/manifest.json        タイルの並びと大きさ
 https://kimkim0106.github.io/vrchat-osm-tiles/v1/<地域>/tiles/<z>/<x>/<y>.png
+https://kimkim0106.github.io/vrchat-osm-tiles/v2/index.json
+https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/manifest.json        タイルがどのシートの何行目にあるか
+https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.png   シート (複数タイル = 1 画像)
+https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   同じシートの生データ (binZooms のズームだけ)
 ```
 
 ワールドはこの URL をアップロード時に焼き込みます (Udon は実行時に VRCUrl を作れない)。
 **リポジトリ名・地域の `name`・パスの形は変えないでください。** 変えると公開済みのワールドで地図が出なくなります。
 
-`v1` は VMT-DT の形式の版です (manifest と index.json の `version`、テクスチャのヘッダ列 1 と同じ番号)。
+`v1` / `v2` は VMT-DT の形式の版です (manifest と index.json の `version`、テクスチャのヘッダ列 1 と同じ番号)。
 ワールドの読み方が変わる変更は形式の版を上げて次のディレクトリに出し、古い版も配り続けます。
 
 ## 焼いた地域は固定する
@@ -23,7 +27,8 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v1/<地域>/tiles/<z>/<x>/<y>.png
 ワールドは作るときに manifest の頂点数を焼き込みます。同じ URL の中身を焼き直すと、頂点が増えたタイルで三角形が欠けます
 (同じ日に OSM を取り直しただけでも、東京 563 枚のうち 10 枚で増えた)。そのため、一度焼いた地域は勝手に焼き直しません。
 
-- 焼いた地域は Release (タグ = 版。[v1](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v1)) に `<地域>.tar.gz` として保存します。
+- 焼いた地域は Release (タグ = 版。[v1](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v1)、[v2](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v2)) に `<地域>.tar.gz` として保存します。
+- v2 は v1 を `vmt_pack.py` でまとめて作ります。v1 を焼き直すと v2 も作り直します。
 - Actions は毎回すべての版の Release を戻し、まだ無い地域だけを焼いて足します。スクリプトを直して push しても、焼いた地域は変わりません。
 - `regions.json` から消しても、Release に残っている地域は配り続けます (古いワールドのため)。止めるには Release のファイルを消します。
 - OSM のデータを新しくするときは、Actions を手動実行して `rebuild` に地域名 (または `all`) を入れます。
@@ -32,7 +37,7 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v1/<地域>/tiles/<z>/<x>/<y>.png
 | 版 | 中身 |
 |---|---|
 | v1 | タイル 1 枚 = 画像 1 枚 |
-| v2 (予定) | 複数のタイルを 2048 × 2048 の 1 枚にまとめる |
+| v2 | 複数のタイルを 2048 × 2048 までの 1 枚 (シート) にまとめる。タイルの中身は v1 と同じ。形式は `vmt_pack.py` の冒頭 |
 
 ## VRChat の制約と、このリポジトリでの対応
 
@@ -41,7 +46,8 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v1/<地域>/tiles/<z>/<x>/<y>.png
 | Image Loading はリダイレクトを許さない | ファイルを直接指す `https://` の URL だけを使う。独自ドメインは設定しない (`github.io` から 301 になる)。配信後に `check_site.py` が「リダイレクトなしで 200」を確かめる |
 | 信頼済みドメインでないと既定では読めない | `*.github.io` は Image Loading・String Loading の両方で信頼済み (`raw.githubusercontent.com` は対象外) |
 | 画像は 2048 × 2048 まで | タイルの幅は 2048 固定、高さは数百行 |
-| 画像はシーン全体で 5 秒に 1 枚 | v1 は未対応。複数タイルを 1 枚にまとめる v2 で対応する予定 |
+| 画像はシーン全体で 5 秒に 1 枚 | v2 で複数タイルを 1 枚にまとめる (東京 563 タイル → 47 枚)。親タイルの子 4 枚を割らずに Z 順で詰めるので、足元の 36 タイルは中央値 5 枚に入る |
+| 文字列もシーン全体で 5 秒に 1 回 (画像とは別) | `binZooms` のズームのシートは生データ (.bin、RGB24) も置き、String Loading で画像と並行して取れるようにする。生データは PNG の 3〜4 倍の大きさなので、床の全体に使うズームだけにする |
 
 GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`build_site.py` は合計 900 MB を超えると止まります。
 
@@ -50,11 +56,12 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 `regions.json` に足して main に push すると、Actions がその地域だけ焼いて Release に保存し、配ります。
 
 ```json
-{"name": "osaka", "title": "大阪", "area": "kansai", "bbox": "135.40,34.60,135.60,34.75", "zooms": "10-14", "lang": "ja"}
+{"name": "osaka", "title": "大阪", "area": "kansai", "bbox": "135.40,34.60,135.60,34.75", "zooms": "10-14", "lang": "ja", "binZooms": [13]}
 ```
 
 - `area` は planetiler の `--area` (Geofabrik の地域名)。`bbox` は 西,南,東,北 の経緯度。
 - `name` は URL の一部になるので英小文字で。
+- `binZooms` は v2 で生データも置くズーム (床マップの全体に使うズーム)。東京の z13 で約 80 MB。
 
 ## 手元で焼く
 
@@ -79,8 +86,9 @@ python3 check_site.py https://kimkim0106.github.io/vrchat-osm-tiles/
 
 ## 形式の版
 
-`vmt_bake.py` の先頭に VMT-DT の形式が書いてあります。形式の版は `vmt_bake.py` と `build_site.py` の
-`FORMAT_VERSION`、描く側のシェーダーの 3 か所で合っている必要があります (`build_site.py` は焼いた manifest の版が違うと止まる)。
+`vmt_bake.py` の先頭に VMT-DT 1 (タイル)、`vmt_pack.py` の先頭に VMT-DT 2 (シート) の形式が書いてあります。
+タイルの形式の版は `vmt_bake.py` と `build_site.py` の `FORMAT_VERSION`、シートは `vmt_pack.py` と `build_site.py` の `SHEET_VERSION`、
+それと描く側のシェーダーで合っている必要があります (`build_site.py` は作った manifest の版が違うと止まる)。
 Pages はデプロイのたびにサイト全体を入れ替えますが、Actions は毎回すべての版の Release を戻すので、
 v2 を出した後も v1 は焼き直さずにそのまま配り続けられます。
 

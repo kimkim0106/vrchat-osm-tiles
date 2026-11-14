@@ -6,7 +6,10 @@
    "area": "kanto",
    "bbox": "139.55,35.50,139.96,35.87",
    "zooms": "10-14",
-   "lang": "ja"
+   "lang": "ja",
+   "binZooms": [
+    13
+   ]
   }
  ]
 }
