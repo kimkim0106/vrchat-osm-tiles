@@ -46,6 +46,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FORMAT = "VMT-DT"
@@ -69,6 +70,18 @@ def run(cmd):
 
 def build_mbtiles(region, tools, work, java_mem):
     out = os.path.join(work, f"{region['name']}.mbtiles")
+    # Geofabrik は続けて取ると接続を拒むことがあるので、間をあけて試し直す (取れた元データは download_dir に残る)
+    for attempt in range(1, 4):
+        try:
+            return _planetiler(region, tools, work, java_mem, out)
+        except subprocess.CalledProcessError:
+            if attempt == 3:
+                raise
+            print(f"{region['name']}: planetiler が失敗した。{120 * attempt} 秒後に試し直す ({attempt}/3)", flush=True)
+            time.sleep(120 * attempt)
+
+
+def _planetiler(region, tools, work, java_mem, out):
     run(["java", f"-Xmx{java_mem}", "-jar", os.path.join(tools, "planetiler.jar"),
          "--download", f"--area={region['area']}", f"--bounds={region['bbox']}",
          f"--download_dir={os.path.join(work, 'sources')}", f"--tmpdir={os.path.join(work, 'tmp')}",
