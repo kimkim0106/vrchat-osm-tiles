@@ -287,7 +287,8 @@ def main():
         print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
     total = write_indexes(args.site)
     print(f"site total {total / 1e6:.1f} MB -> {args.site}")
-    if total > SITE_LIMIT:
+    # 容量は Pages に載せる形 (--prune / --r2 の後) で確かめる。焼いた直後の site/ には配らない版や R2 の地域も入っている
+    if args.index_only and total > SITE_LIMIT:
         sys.exit("GitHub Pages のサイトは 1 GB まで。地域かズームを減らす")
 
 
