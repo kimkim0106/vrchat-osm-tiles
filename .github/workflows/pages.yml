@@ -4,6 +4,9 @@ name: タイルを焼いて Pages に配る
 # ワールドは manifest の頂点数を焼き込むので、同じ URL の中身を勝手に焼き直さない。
 # v1 (1 タイル = 1 画像) を焼くのは「まだ Release に無い地域」と「手動実行で rebuild に指定した地域」だけ。
 # v2 (シート) は v1 から作る。作るのは「まだ Release に無い地域」と「v1 を焼き直した地域」と「rebuild に指定した地域」。
+# regions.json で "host": "r2" の地域は Pages に載せず、Cloudflare R2 に上げる (r2_upload.py)。
+#   Secrets: R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY、Variables: R2_BUCKET / R2_PUBLIC_URL
+#   これが無いときは R2 に上げる手順と確認を飛ばす (焼いて Release に保存するところまではやる)。
 
 on:
   push:
@@ -13,6 +16,7 @@ on:
       - vmt_pack.py
       - build_site.py
       - check_site.py
+      - r2_upload.py
       - regions.json
       - requirements.txt
       - .github/workflows/pages.yml
@@ -39,12 +43,14 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300
     permissions:
       contents: write   # Release に焼いた地域を保存する
     env:
       GH_TOKEN: ${{ github.token }}
       REBUILD: ${{ inputs.rebuild }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
     steps:
       - uses: actions/checkout@v7
 
@@ -65,6 +71,7 @@ jobs:
             for f in dl/"$tag"/*.tar.gz; do
               echo "restore $f"
               tar -xzf "$f" -C site
+              rm "$f"
             done
           done
           sheet_dist=$(python -c 'import build_site; print(build_site.SHEET_DIST)')
@@ -88,6 +95,14 @@ jobs:
           echo "sheet_dist=$sheet_dist" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "pack=$pack" >> "$GITHUB_OUTPUT"
+
+      # 地域が多いとディスク (元データ、MBTiles、v1 / v2、tar.gz) が足りなくなるので、使わない道具を消して空ける
+      - if: steps.plan.outputs.build != ''
+        name: ディスクを空ける
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - if: steps.plan.outputs.build != ''
         uses: actions/setup-java@v6
@@ -153,14 +168,32 @@ jobs:
             for n in "$@"; do
               tar -czf "pack/$dist/$n.tar.gz" -C site "$dist/$n"
               gh release upload "$dist" "pack/$dist/$n.tar.gz" --clobber
+              rm "pack/$dist/$n.tar.gz"
             done
           }
           [ -z "$BUILD" ] || save "$DIST" $BUILD
           [ -z "$PACK" ] || save "$SHEET_DIST" $PACK
 
       # dists を指定した地域は、その版だけを配る (Release には全部の版を保存してある)
+      # host が r2 の地域は r2site/ に移す (Pages には載せない)
       - name: 索引を作る
-        run: python build_site.py --site site --index-only --prune
+        run: python build_site.py --site site --index-only --prune --r2 r2site
+
+      # R2 に上げるのは、この実行で作った地域と、R2 にまだ無い地域だけ (manifest.json の有無で見る)
+      - name: R2 に上げる
+        if: env.R2_ACCOUNT_ID != '' && env.R2_BUCKET != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          PACK: ${{ steps.plan.outputs.pack }}
+        run: python r2_upload.py r2site --force "$PACK"
+
+      - name: R2 の設定が無い
+        if: env.R2_ACCOUNT_ID == '' || env.R2_BUCKET == ''
+        run: echo "::warning::R2 の Secrets / Variables が無いので、host が r2 の地域は上げていない (Release には保存した)"
 
       - uses: actions/upload-pages-artifact@v5
         with:
@@ -191,3 +224,6 @@ jobs:
         with:
           python-version: "3.15"
       - run: python check_site.py "${{ needs.deploy.outputs.page_url }}"
+      - name: R2 を確かめる
+        if: vars.R2_PUBLIC_URL != ''
+        run: python check_site.py --dists v2 "${{ vars.R2_PUBLIC_URL }}"

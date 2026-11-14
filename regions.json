@@ -38,6 +38,111 @@
    "dists": [
     "v2"
    ]
+  },
+  {
+   "name": "osaka",
+   "title": "大阪",
+   "area": "kansai",
+   "bbox": "135.2747,34.4975,135.6921,34.8769",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
+  },
+  {
+   "name": "nagoya",
+   "title": "名古屋",
+   "area": "japan",
+   "bbox": "136.6809,34.9670,137.0984,35.3443",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
+  },
+  {
+   "name": "fukuoka",
+   "title": "福岡",
+   "area": "kyushu",
+   "bbox": "130.2209,33.4039,130.6384,33.7883",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
+  },
+  {
+   "name": "sapporo",
+   "title": "札幌",
+   "area": "hokkaido",
+   "bbox": "141.1633,42.8840,141.5808,43.2212",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
+  },
+  {
+   "name": "sendai",
+   "title": "仙台",
+   "area": "tohoku",
+   "bbox": "140.6799,38.0740,141.0974,38.4364",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
+  },
+  {
+   "name": "hiroshima",
+   "title": "広島",
+   "area": "chugoku",
+   "bbox": "132.2864,34.2073,132.7039,34.5880",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
+  },
+  {
+   "name": "niigata",
+   "title": "新潟",
+   "area": "chubu",
+   "bbox": "138.8342,37.7273,139.2517,38.0913",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v2"
+   ],
+   "host": "r2"
   }
  ]
 }

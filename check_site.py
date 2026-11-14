@@ -6,7 +6,12 @@ VRChat の Image Loading はリダイレクトを許さない (リダイレク�
 リダイレクトせずに 200 が返ること、タイルが image/png であることを確かめる。
 
   python check_site.py https://<user>.github.io/<repo>/
+  python check_site.py --dists v2 https://<R2 の公開 URL>/     # R2 (v2 だけ置く)
+
+UnityWebRequest と同じく Accept-Encoding: gzip を付けて取り、gzip で返ってきたら展開して読む。
 """
+import argparse
+import gzip
 import json
 import sys
 import time
@@ -22,14 +27,17 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 opener = urllib.request.build_opener(NoRedirect)
-UA = {"User-Agent": "vrchat-osm-tiles-check"}
+UA = {"User-Agent": "vrchat-osm-tiles-check", "Accept-Encoding": "gzip"}
 
 
 def fetch(url, method="GET"):
     req = urllib.request.Request(url, method=method, headers=UA)
     try:
         with opener.open(req, timeout=30) as r:
-            return r.status, r.headers.get("Content-Type", ""), (r.read() if method == "GET" else b""), ""
+            body = r.read() if method == "GET" else b""
+            if body and r.headers.get("Content-Encoding", "") == "gzip":
+                body = gzip.decompress(body)
+            return r.status, r.headers.get("Content-Type", ""), body, ""
     except urllib.error.HTTPError as e:
         return e.code, e.headers.get("Content-Type", ""), b"", e.headers.get("Location", "")
 
@@ -75,14 +83,16 @@ def check_dist(base, version):
 
 
 def main():
-    if len(sys.argv) != 2:
-        sys.exit(__doc__)
-    base = sys.argv[1]
+    ap = argparse.ArgumentParser(description="配信中のサイトをリダイレクトなしで読めるか確かめる")
+    ap.add_argument("base")
+    ap.add_argument("--dists", default=",".join(DISTS), help="確かめる版 (カンマ区切り)")
+    args = ap.parse_args()
+    base = args.base
     if not base.startswith("https://"):
         sys.exit("https:// の URL を渡す (http:// は https:// にリダイレクトされる)")
     if not base.endswith("/"):
         base += "/"
-    for dist in DISTS:
+    for dist in args.dists.split(","):
         check_dist(base + dist + "/", int(dist[1:]))
     print("すべてリダイレクトなしで 200")
 

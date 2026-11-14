@@ -29,6 +29,11 @@ v2 は v1 から作る (vmt_pack.py) ので、v1 を焼き直さない限り v2 
 regions.json の地域に "dists": ["v2"] があれば、その版だけを配る (--prune が他の版のディレクトリを site/ から外す)。
 v2 は v1 から作るので v1 も焼いて Release には保存するが、Pages には載せない (サイトの容量を空けるため)。
 
+regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudflare R2 に置く (Pages の 1 GB に入らないため)。
+--r2 DIR を付けると、索引を作る前にその地域を site/ から DIR/ に移し、DIR/ にも R2 用の索引を作る。
+DIR/ を R2 に上げるのは r2_upload.py。R2 は VRChat の信頼済みドメインではないので、
+その地域は「Allow Untrusted URLs」をオンにした人にしか読めない。
+
 --tools には planetiler.jar と NotoSansCJK-Regular.ttc を置く。
 """
 import argparse
@@ -50,6 +55,7 @@ SHEET_VERSION = 2              # vmt_pack.py の SHEET_VERSION
 SHEET_DIST = f"v{SHEET_VERSION}"
 DISTS = [DIST, SHEET_DIST]     # 配る版 (check_site.py が確かめる)
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
+HOSTS = ("pages", "r2")        # regions.json の host (書かなければ pages)
 
 
 def now():
@@ -143,6 +149,22 @@ def prune(site, regions):
                 shutil.rmtree(out)
 
 
+def move_r2(site, r2, regions):
+    """host が r2 の地域を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。"""
+    if os.path.exists(r2):
+        shutil.rmtree(r2)
+    os.makedirs(r2)
+    for r in regions:
+        if r.get("host", "pages") != "r2":
+            continue
+        for dist in dist_dirs(site):
+            src = os.path.join(site, dist, r["name"])
+            if os.path.isdir(src):
+                os.makedirs(os.path.join(r2, dist), exist_ok=True)
+                print(f"{r['name']}: {dist} は R2 に置く ({src} -> {r2})")
+                shutil.move(src, os.path.join(r2, dist, r["name"]))
+
+
 def dist_dirs(site):
     """site/ にある版のディレクトリ (v1, v2, ...) を番号順に返す。"""
     found = []
@@ -218,6 +240,7 @@ def main():
     ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
     ap.add_argument("--index-only", action="store_true", help="焼かずに、置いてある地域から索引だけ作る")
     ap.add_argument("--prune", action="store_true", help="regions.json の dists に無い版を site/ から外す (Release に保存した後で)")
+    ap.add_argument("--r2", default=None, help="host が r2 の地域をこのディレクトリに移し、ここにも索引を作る (Release に保存した後で)")
     args = ap.parse_args()
     os.makedirs(args.site, exist_ok=True)
 
@@ -230,6 +253,8 @@ def main():
         bad = set(r.get("dists") or []) - set(DISTS)
         if bad:
             sys.exit(f"{r['name']}: dists に知らない版 {', '.join(sorted(bad))}")
+        if r.get("host", "pages") not in HOSTS:
+            sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
     unknown = set(args.only or []) | set(args.pack)
     unknown -= set(names)
     if unknown:
@@ -256,6 +281,10 @@ def main():
 
     if args.prune:
         prune(args.site, regions)
+    if args.r2:
+        move_r2(args.site, args.r2, regions)
+        r2_total = write_indexes(args.r2)
+        print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
     total = write_indexes(args.site)
     print(f"site total {total / 1e6:.1f} MB -> {args.site}")
     if total > SITE_LIMIT:

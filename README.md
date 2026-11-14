@@ -16,6 +16,16 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.png   �
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   同じシートの生データ (binZooms のズームだけ)
 ```
 
+`regions.json` で `"host": "r2"` の地域は Pages の容量 (1 GB) に入らないので、Cloudflare R2 に置きます。
+
+```
+<R2 の公開 URL>/v2/index.json
+<R2 の公開 URL>/v2/<地域>/manifest.json                                       形は Pages の v2 と同じ
+```
+
+**R2 は VRChat の信頼済みドメインではありません。** R2 の地域は、VRChat の設定で「Allow Untrusted URLs」をオンにした人にしか読めません。
+`.bin` と `.json` は gzip にして `Content-Encoding: gzip` を付けて置きます (UnityWebRequest が展開する)。
+
 ワールドはこの URL をアップロード時に焼き込みます (Udon は実行時に VRCUrl を作れない)。
 **リポジトリ名・地域の `name`・パスの形は変えないでください。** 変えると公開済みのワールドで地図が出なくなります。
 
@@ -44,7 +54,7 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   �
 | 制約 | 対応 |
 |---|---|
 | Image Loading はリダイレクトを許さない | ファイルを直接指す `https://` の URL だけを使う。独自ドメインは設定しない (`github.io` から 301 になる)。配信後に `check_site.py` が「リダイレクトなしで 200」を確かめる |
-| 信頼済みドメインでないと既定では読めない | `*.github.io` は Image Loading・String Loading の両方で信頼済み (`raw.githubusercontent.com` は対象外) |
+| 信頼済みドメインでないと既定では読めない | `*.github.io` は Image Loading・String Loading の両方で信頼済み (`raw.githubusercontent.com` は対象外)。R2 (`r2.dev` も独自ドメインも) は対象外 |
 | 画像は 2048 × 2048 まで | タイルの幅は 2048 固定、高さは数百行 |
 | 画像はシーン全体で 5 秒に 1 枚 | v2 で複数タイルを 1 枚にまとめる (東京 563 タイル → 47 枚)。親タイルの子 4 枚を割らずに Z 順で詰めるので、足元の 36 タイルは中央値 5 枚に入る |
 | 文字列もシーン全体で 5 秒に 1 回 (画像とは別) | `binZooms` のズームのシートは生データ (.bin、RGB24) も置き、String Loading で画像と並行して取れるようにする。生データは PNG の 3〜4 倍の大きさなので、床の全体に使うズームだけにする |
@@ -72,6 +82,29 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 | tokyo | 東京 | (東京駅は中心から東へ 0.5 枚、南へ 0.3 枚) | v1, v2 |
 | kobe | 神戸 | JR 三ノ宮駅 (z13 のタイルの境目にそろえたので、駅は中心から東へ 0.45 枚、北へ 0.2 枚) | v2 |
 | tokushima | 徳島 | 徳島駅 (駅は中心から西へ 0.2 枚、北へ 0.1 枚) | v2 |
+| osaka | 大阪 | 大阪駅 (東へ 0.3 枚、北へ 0.4 枚) | v2 (R2) |
+| nagoya | 名古屋 | 名古屋駅 (西へ 0.2 枚、北へ 0.4 枚)。三重県 (Geofabrik では kansai) にかかるので `area` は japan | v2 (R2) |
+| fukuoka | 福岡 | 博多駅 (西へ 0.2 枚、南へ 0.2 枚) | v2 (R2) |
+| sapporo | 札幌 | 札幌駅 (西へ 0.5 枚、北へ 0.5 枚) | v2 (R2) |
+| sendai | 仙台 | 仙台駅 (西へ 0.1 枚、北へ 0.1 枚) | v2 (R2) |
+| hiroshima | 広島 | 広島駅 (西へ 0.45 枚) | v2 (R2) |
+| niigata | 新潟 | 新潟駅 (東へ 0.4 枚、北へ 0.1 枚) | v2 (R2) |
+
+範囲は駅を含む z13 のタイルを中心に 10 × 11 枚とし、四辺を 0.25 枚ずつ内側に寄せた経緯度を `bbox` に書いています。
+
+### R2 の設定
+
+`host` が `r2` の地域を上げるには、このリポジトリの Settings > Secrets and variables > Actions に次を登録します。
+無いときは焼いて Release に保存するところまで行い、R2 には上げません (警告が出ます)。
+
+| 種類 | 名前 | 中身 |
+|---|---|---|
+| Secret | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID |
+| Secret | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 の API トークン (そのバケットの Object Read & Write) |
+| Variable | `R2_BUCKET` | バケット名 |
+| Variable | `R2_PUBLIC_URL` | バケットの公開 URL (`https://pub-….r2.dev/` か独自ドメイン)。配信後の確認に使う |
+
+R2 に上げ直すのは、その実行で焼いた (まとめた) 地域と、R2 に `manifest.json` が無い地域だけです。
 
 ## 手元で焼く
 
