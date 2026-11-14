@@ -1,0 +1,8 @@
+build/
+site/
+.venv/
+__pycache__/
+*.mbtiles
+*.ttc
+*.jar
+.DS_Store

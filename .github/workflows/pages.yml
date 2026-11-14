@@ -1,0 +1,103 @@
+name: タイルを焼いて Pages に配る
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - vmt_bake.py
+      - build_site.py
+      - check_site.py
+      - regions.json
+      - requirements.txt
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PLANETILER_VERSION: 0.10.2
+  PLANETILER_SHA256: f310bd0413e2e4512b27f4046d418664e8e1d3bf31603c2a70e23de06c167e4d
+  NOTO_TAG: Sans2.004
+  NOTO_SHA256: b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 道具のキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: build/tools
+          key: tools-planetiler-${{ env.PLANETILER_VERSION }}-noto-${{ env.NOTO_TAG }}
+
+      - name: planetiler とフォントを取ってくる
+        run: |
+          mkdir -p build/tools
+          cd build/tools
+          [ -f planetiler.jar ] || curl -fsSL -o planetiler.jar \
+            "https://github.com/onthegomap/planetiler/releases/download/v${PLANETILER_VERSION}/planetiler.jar"
+          [ -f NotoSansCJK-Regular.ttc ] || curl -fsSL -o NotoSansCJK-Regular.ttc \
+            "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
+          printf '%s  planetiler.jar\n%s  NotoSansCJK-Regular.ttc\n' "$PLANETILER_SHA256" "$NOTO_SHA256" | sha256sum -c -
+
+      # OSM の元データ (Geofabrik の pbf と海岸線など、約 2 GB)。月が替わると取り直す
+      - id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - name: 元データのキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: build/sources
+          key: sources-${{ hashFiles('regions.json') }}-${{ steps.month.outputs.month }}
+
+      - name: 地図を焼く
+        run: python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)"
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  # VRChat はリダイレクトを読めないので、配信後に実際の URL で確かめる
+  check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - run: python check_site.py "${{ needs.deploy.outputs.page_url }}"

@@ -1,0 +1,5 @@
+numpy==2.5.4
+pillow==13.0.0
+mapbox_earcut==2.1.0
+scipy==1.18.1
+fonttools==4.68.0
