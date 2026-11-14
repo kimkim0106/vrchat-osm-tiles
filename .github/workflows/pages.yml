@@ -4,6 +4,8 @@ name: タイルを焼いて Pages に配る
 # ワールドは manifest の頂点数を焼き込むので、同じ URL の中身を勝手に焼き直さない。
 # v1 (1 タイル = 1 画像) を焼くのは「まだ Release に無い地域」と「手動実行で rebuild に指定した地域」だけ。
 # v2 (シート) は v1 から作る。作るのは「まだ Release に無い地域」と「v1 を焼き直した地域」と「rebuild に指定した地域」。
+# v3 (POI 入りのシート) は v1 とは別に焼く。焼くのは dists に v3 がある地域 (dists が無ければすべて) のうち、
+# 「まだ Release に無い地域」と「rebuild に指定した地域」。同じ実行で v1 も焼くなら、その MBTiles を使い回す。
 # regions.json で "host": "r2" の地域は Pages に載せず、Cloudflare R2 に上げる (r2_upload.py)。
 #   Secrets: R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY、Variables: R2_BUCKET / R2_PUBLIC_URL
 #   これが無いときは R2 に上げる手順と確認を飛ばす (焼いて Release に保存するところまではやる)。
@@ -75,52 +77,67 @@ jobs:
             done
           done
           sheet_dist=$(python -c 'import build_site; print(build_site.SHEET_DIST)')
+          poi_dist=$(python -c 'import build_site; print(build_site.POI_DIST)')
           build=""
           pack=""
-          for n in $(python -c 'import json; print(" ".join(r["name"] for r in json.load(open("regions.json"))["regions"]))'); do
+          poi=""
+          # 地域ごとに: 名前、v1 (と v2) を作るか、v3 を作るか
+          regions=$(python -c 'import json, build_site as b
+          for r in json.load(open("regions.json"))["regions"]:
+              print(r["name"], int(b.wants_dist(r, b.DIST)), int(b.wants_dist(r, b.POI_DIST)))')
+          while read -r n want_v1 want_poi; do
             forced=0
             if [ "$REBUILD" = all ] || [[ ",${REBUILD// /}," == *",$n,"* ]]; then forced=1; fi
-            if [ $forced = 1 ] || [ ! -f "site/$dist/$n/manifest.json" ]; then
-              build="$build $n"
-              pack="$pack $n"
-            elif [ ! -f "site/$sheet_dist/$n/manifest.json" ]; then
-              pack="$pack $n"
+            if [ "$want_v1" = 1 ]; then
+              if [ $forced = 1 ] || [ ! -f "site/$dist/$n/manifest.json" ]; then
+                build="$build $n"
+                pack="$pack $n"
+              elif [ ! -f "site/$sheet_dist/$n/manifest.json" ]; then
+                pack="$pack $n"
+              fi
             fi
-          done
+            if [ "$want_poi" = 1 ] && { [ $forced = 1 ] || [ ! -f "site/$poi_dist/$n/manifest.json" ]; }; then
+              poi="$poi $n"
+            fi
+          done <<< "$regions"
           build="${build# }"
           pack="${pack# }"
+          poi="${poi# }"
           echo "焼く地域 ($dist): ${build:-なし}"
           echo "まとめる地域 ($sheet_dist): ${pack:-なし}"
+          echo "焼く地域 ($poi_dist): ${poi:-なし}"
           echo "dist=$dist" >> "$GITHUB_OUTPUT"
           echo "sheet_dist=$sheet_dist" >> "$GITHUB_OUTPUT"
+          echo "poi_dist=$poi_dist" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "pack=$pack" >> "$GITHUB_OUTPUT"
+          echo "poi=$poi" >> "$GITHUB_OUTPUT"
 
       # 地域が多いとディスク (元データ、MBTiles、v1 / v2、tar.gz) が足りなくなるので、使わない道具を消して空ける
-      - if: steps.plan.outputs.build != ''
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.poi != ''
         name: ディスクを空ける
         run: |
           df -h /
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - if: steps.plan.outputs.build != ''
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.poi != ''
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
 
-      - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != ''
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != '' || steps.plan.outputs.poi != ''
         run: pip install -r requirements.txt
 
-      - if: steps.plan.outputs.build != ''
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.poi != ''
         name: 道具のキャッシュ
         uses: actions/cache@v6
         with:
           path: build/tools
           key: tools-planetiler-${{ env.PLANETILER_VERSION }}-noto-${{ env.NOTO_TAG }}
 
-      - if: steps.plan.outputs.build != ''
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.poi != ''
         name: planetiler とフォントを取ってくる
         run: |
           mkdir -p build/tools
@@ -131,14 +148,17 @@ jobs:
             "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
           printf '%s  planetiler.jar\n%s  NotoSansCJK-Regular.ttc\n' "$PLANETILER_SHA256" "$NOTO_SHA256" | sha256sum -c -
 
-      # 1 地域ずつ焼いて (v1)、まとめて (v2)、すぐ Release に保存する。途中で止まっても、保存した地域は次の実行で焼かない
-      - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != ''
+      # 1 地域ずつ焼いて (v1)、まとめて (v2)、POI 入りで焼いて (v3)、すぐ Release に保存する。
+      # 途中で止まっても、保存した地域は次の実行で焼かない
+      - if: steps.plan.outputs.build != '' || steps.plan.outputs.pack != '' || steps.plan.outputs.poi != ''
         name: 地域を焼いて Release に保存する
         env:
           BUILD: ${{ steps.plan.outputs.build }}
           PACK: ${{ steps.plan.outputs.pack }}
+          POI: ${{ steps.plan.outputs.poi }}
           DIST: ${{ steps.plan.outputs.dist }}
           SHEET_DIST: ${{ steps.plan.outputs.sheet_dist }}
+          POI_DIST: ${{ steps.plan.outputs.poi_dist }}
         run: |
           set -euo pipefail
           save() {
@@ -151,15 +171,24 @@ jobs:
             rm "pack/$dist/$n.tar.gz"
             echo "$n: $dist を Release に保存した"
           }
-          # PACK は BUILD を含む (v1 を焼いた地域は v2 も作り直す)
-          for n in $PACK; do
+          # PACK は BUILD を含む (v1 を焼いた地域は v2 も作り直す)。v3 だけの地域はその後に続ける
+          for n in $(echo $PACK $POI | tr ' ' '\n' | awk 'NF && !seen[$0]++'); do
             if [[ " $BUILD " == *" $n "* ]]; then
               python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" --only "$n"
               save "$DIST" "$n"
-              rm -f "build/$n.mbtiles"
             fi
-            python build_site.py --site site --pack "$n"
-            save "$SHEET_DIST" "$n"
+            if [[ " $PACK " == *" $n "* ]]; then
+              python build_site.py --site site --pack "$n"
+              save "$SHEET_DIST" "$n"
+            fi
+            if [[ " $POI " == *" $n "* ]]; then
+              # v1 を焼いたときの MBTiles があれば使い回す (無ければ planetiler から)
+              given=()
+              [ -f "build/$n.mbtiles" ] && given=(--mbtiles "$n=build/$n.mbtiles")
+              python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" --only "$n" --poi "${given[@]}"
+              save "$POI_DIST" "$n"
+            fi
+            rm -f "build/$n.mbtiles"
             df -h / | tail -1
           done
 
@@ -178,7 +207,8 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           PACK: ${{ steps.plan.outputs.pack }}
-        run: python r2_upload.py r2site --force "$PACK"
+          POI: ${{ steps.plan.outputs.poi }}
+        run: python r2_upload.py r2site --force "$PACK $POI"
 
       - name: R2 の設定が無い
         if: env.R2_ACCOUNT_ID == '' || env.R2_BUCKET == ''

@@ -10,10 +10,16 @@
   site/v2/<name>/manifest.json        vmt_pack.py の manifest
   site/v2/<name>/sheets/z/k.png       シート (複数タイル = 1 画像)。v1 のタイルをまとめたもので、中身は同じ
   site/v2/<name>/sheets/z/k.bin       同じシートの生データ (regions.json の binZooms のズームだけ)
+  site/v3/<name>/...                  v2 と同じ並び。POI (駅・観光地・店など) 入りのタイルをまとめたシート
 
 v1 / v2 は VMT-DT の形式の版 (manifest の version、テクスチャのヘッダ列 1) と同じ番号。
-ワールドが焼き込む URL に入るので、読み方の変わる変更は形式の版を上げて別のディレクトリに出し、古い版も配り続ける。
+ワールドが焼き込む URL に入るので、読み方の変わる変更は版を上げて別のディレクトリに出し、古い版も配り続ける。
 v2 は v1 から作る (vmt_pack.py) ので、v1 を焼き直さない限り v2 のタイルも変わらない。
+v1 / v2 は POI を入れずに焼く (vmt_bake.py --no-poi。v2 までのワールドのシェーダーは POI を地名と区別できない)。
+v3 は POI 入りで焼いたタイル (配らない。work/poi/ に置いてすぐ消す) を v2 と同じ形式のシートにまとめたもの。
+manifest の version は 2 (シートの並び) のままで、labelCategories (ラベルの種類の一覧) が付く。
+ラベル頂点の T3.B に種類の番号が入るので、種類ごとの色分けと出し入れ (_LabelMask) のできるシェーダーで読む。
+v3 は v1 とは別に焼く (同じ MBTiles から。--poi)。
 
 焼いた地域は固定する。ワールドは作るときに manifest の頂点数を焼き込むので、同じ URL の中身を焼き直すと
 頂点が増えたタイルで三角形が欠ける。Actions は焼いた地域を Release (タグ = 版) に保存し、次からはそれを戻して配る。
@@ -23,11 +29,13 @@ v2 は v1 から作る (vmt_pack.py) ので、v1 を焼き直さない限り v2 
   python build_site.py --tools build/tools --work build --site site --jobs 4
   python build_site.py ... --only tokyo --mbtiles tokyo=path/to/tokyo.mbtiles   # 既存の MBTiles を使う
   python build_site.py --site site --pack tokyo                                  # v1 の tokyo から v2 を作る
+  python build_site.py ... --only tokyo --poi                                    # v3 (POI 入りのシート) を焼く
   python build_site.py --site site --index-only                                  # 置いてある地域から索引だけ作る
   python build_site.py --site site --index-only --prune                          # 配らない版を外してから索引を作る
 
 regions.json の地域に "dists": ["v2"] があれば、その版だけを配る (--prune が他の版のディレクトリを site/ から外す)。
 v2 は v1 から作るので v1 も焼いて Release には保存するが、Pages には載せない (サイトの容量を空けるため)。
+v3 は dists に v3 がある地域 (dists が無ければすべて) だけ焼く (wants_dist)。
 
 regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudflare R2 に置く (Pages の 1 GB に入らないため)。
 --r2 DIR を付けると、索引を作る前にその地域を site/ から DIR/ に移し、DIR/ にも R2 用の索引を作る。
@@ -54,7 +62,8 @@ FORMAT_VERSION = 1             # vmt_bake.py の FORMAT_VERSION と同じにす�
 DIST = f"v{FORMAT_VERSION}"    # 焼いたタイルを置くディレクトリ
 SHEET_VERSION = 2              # vmt_pack.py の SHEET_VERSION
 SHEET_DIST = f"v{SHEET_VERSION}"
-DISTS = [DIST, SHEET_DIST]     # 配る版 (check_site.py が確かめる)
+POI_DIST = "v3"                # POI 入りのシート (形式は v2 と同じ。manifest の version も 2)
+DISTS = [DIST, SHEET_DIST, POI_DIST]  # 配る版 (check_site.py が確かめる)
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
 HOSTS = ("pages", "r2")        # regions.json の host (書かなければ pages)
 
@@ -112,8 +121,16 @@ def write_region_json(out, entry):
         json.dump(entry, f, ensure_ascii=False, indent=1)
 
 
-def bake(region, mbtiles, tools, site, jobs):
-    out = os.path.join(site, DIST, region["name"])
+def wants_dist(region, dist):
+    """その地域でその版を作るか。dists が無ければすべての版。v2 を配るなら、その元の v1 も作る。"""
+    dists = region.get("dists")
+    if dists is None:
+        return True
+    return dist in dists or (dist == DIST and SHEET_DIST in dists)
+
+
+def bake_tiles(region, mbtiles, tools, out, jobs, poi):
+    """vmt_bake.py で out に焼き、manifest を返す。poi が False なら POI を入れない (v1)。"""
     if os.path.exists(out):
         shutil.rmtree(out)
     cmd = [sys.executable, os.path.join(HERE, "vmt_bake.py"), mbtiles, out,
@@ -121,6 +138,8 @@ def bake(region, mbtiles, tools, site, jobs):
            "--font", os.path.join(tools, "NotoSansCJK-Regular.ttc"), "--no-bin", "--jobs", str(jobs)]
     if region.get("lang"):
         cmd += ["--lang", region["lang"]]
+    if not poi:
+        cmd.append("--no-poi")
     run(cmd)
     shutil.rmtree(os.path.join(out, "_parts"), ignore_errors=True)
     with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
@@ -131,22 +150,43 @@ def bake(region, mbtiles, tools, site, jobs):
         json.dump(m, f, ensure_ascii=False, indent=1)
     if m.get("version") != FORMAT_VERSION:
         sys.exit(f"{region['name']}: manifest の version {m.get('version')} が {FORMAT_VERSION} と違う")
+    return m
+
+
+def bake(region, mbtiles, tools, site, jobs):
+    """v1 (POI なし、1 タイル = 1 画像) を焼く。"""
+    out = os.path.join(site, DIST, region["name"])
+    m = bake_tiles(region, mbtiles, tools, out, jobs, poi=False)
+    write_region_json(out, region_entry(region, m))
+
+
+def bake_poi(region, mbtiles, tools, site, work, jobs):
+    """POI 入りのタイルを work/poi/ に焼き、シートにまとめて v3 にする (タイルは消す)。"""
+    tiles = os.path.join(work, "poi", region["name"])
+    m = bake_tiles(region, mbtiles, tools, tiles, jobs, poi=True)
+    if len(m.get("labelCategories") or []) < 2:
+        sys.exit(f"{region['name']}: POI 入りで焼いたのに labelCategories が無い")
+    pack_dir(region, tiles, os.path.join(site, POI_DIST, region["name"]))
+    shutil.rmtree(tiles)
+
+
+def pack_dir(region, src, out):
+    """vmt_pack.py で src (1 タイル = 1 画像) を out (シート) にまとめる。"""
+    zooms = ",".join(str(z) for z in region.get("binZooms", []))
+    run([sys.executable, os.path.join(HERE, "vmt_pack.py"), src, out] + (["--bin-zooms", zooms] if zooms else []))
+    with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    if m.get("version") != SHEET_VERSION:
+        sys.exit(f"{region['name']}: {out} の manifest の version が {SHEET_VERSION} ではない")
     write_region_json(out, region_entry(region, m))
 
 
 def pack(region, site):
     """v1 の地域から v2 (シート) を作る。"""
     src = os.path.join(site, DIST, region["name"])
-    out = os.path.join(site, SHEET_DIST, region["name"])
     if not os.path.exists(os.path.join(src, "manifest.json")):
         sys.exit(f"{region['name']}: {src} に v1 が無い (先に焼くか Release から戻す)")
-    zooms = ",".join(str(z) for z in region.get("binZooms", []))
-    run([sys.executable, os.path.join(HERE, "vmt_pack.py"), src, out] + (["--bin-zooms", zooms] if zooms else []))
-    with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
-        m = json.load(f)
-    if m.get("version") != SHEET_VERSION:
-        sys.exit(f"{region['name']}: v2 の manifest の version が {SHEET_VERSION} ではない")
-    write_region_json(out, region_entry(region, m))
+    pack_dir(region, src, os.path.join(site, SHEET_DIST, region["name"]))
 
 
 def prune(site, regions):
@@ -248,6 +288,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--java-mem", default="8g")
     ap.add_argument("--only", action="append", help="この名前の地域だけ焼く (複数可)")
+    ap.add_argument("--poi", action="store_true", help="v1 の代わりに v3 (POI 入りのシート) を焼く")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。planetiler を回さずこの MBTiles を使う")
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
     ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
@@ -287,7 +328,10 @@ def main():
             if args.zooms:
                 r = dict(r, zooms=args.zooms)
             mbtiles = given.get(r["name"]) or build_mbtiles(r, args.tools, args.work, args.java_mem)
-            bake(r, mbtiles, args.tools, args.site, args.jobs)
+            if args.poi:
+                bake_poi(r, mbtiles, args.tools, args.site, args.work, args.jobs)
+            else:
+                bake(r, mbtiles, args.tools, args.site, args.jobs)
             baked += 1
         if not baked:
             sys.exit("焼く地域がない")

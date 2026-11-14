@@ -14,6 +14,7 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/index.json
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/manifest.json        タイルがどのシートの何行目にあるか
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.png   シート (複数タイル = 1 画像)
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   同じシートの生データ (binZooms のズームだけ)
+https://kimkim0106.github.io/vrchat-osm-tiles/v3/<地域>/...                  v2 と同じ形。POI (駅・観光地・店など) 入り
 ```
 
 `regions.json` で `"host": "r2"` の地域は Pages の容量 (1 GB) に入らないので、Cloudflare R2 に置きます。
@@ -31,14 +32,17 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   �
 
 `v1` / `v2` は VMT-DT の形式の版です (manifest と index.json の `version`、テクスチャのヘッダ列 1 と同じ番号)。
 ワールドの読み方が変わる変更は形式の版を上げて次のディレクトリに出し、古い版も配り続けます。
+`v3` はシートの形式は v2 と同じ (manifest の `version` は 2) で、POI を入れたものです (index.json の `version` は 3)。
+v2 までのワールドのシェーダーは POI を地名と区別できないので、別のディレクトリにしています。
 
 ## 焼いた地域は固定する
 
 ワールドは作るときに manifest の頂点数を焼き込みます。同じ URL の中身を焼き直すと、頂点が増えたタイルで三角形が欠けます
 (同じ日に OSM を取り直しただけでも、東京 563 枚のうち 10 枚で増えた)。そのため、一度焼いた地域は勝手に焼き直しません。
 
-- 焼いた地域は Release (タグ = 版。[v1](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v1)、[v2](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v2)) に `<地域>.tar.gz` として保存します。
+- 焼いた地域は Release (タグ = 版。[v1](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v1)、[v2](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v2)、[v3](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v3)) に `<地域>.tar.gz` として保存します。
 - v2 は v1 を `vmt_pack.py` でまとめて作ります。v1 を焼き直すと v2 も作り直します。
+- v3 は v1 とは別に、POI 入りで焼いたタイル (配らない) をまとめて作ります。v1 / v2 は POI を入れずに焼きます (`vmt_bake.py --no-poi`)。
 - Actions は毎回すべての版の Release を戻し、まだ無い地域だけを焼いて足します。スクリプトを直して push しても、焼いた地域は変わりません。
 - `regions.json` から消しても、Release に残っている地域は配り続けます (古いワールドのため)。止めるには Release のファイルを消します。
 - OSM のデータを新しくするときは、Actions を手動実行して `rebuild` に地域名 (または `all`) を入れます。
@@ -48,6 +52,7 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   �
 |---|---|
 | v1 | タイル 1 枚 = 画像 1 枚 |
 | v2 | 複数のタイルを 2048 × 2048 までの 1 枚 (シート) にまとめる。タイルの中身は v1 と同じ。形式は `vmt_pack.py` の冒頭 |
+| v3 | v2 と同じ形のシート。地名に加えて POI (駅・観光・名所・神社・寺・公園・公共施設・宿泊・飲食・買い物) を載せる。ラベルの種類の番号はラベル頂点の T3.B (`vmt_bake.py` の `POI_CATEGORIES`)、一覧は manifest の `labelCategories`。文字アトラスのマスは 32 px |
 
 ## VRChat の制約と、このリポジトリでの対応
 
@@ -74,12 +79,14 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 - `binZooms` は v2 で生データも置くズーム (床マップの全体に使うズーム)。東京の z13 で約 80 MB。
 - `dists` を書くと、その版だけを Pages に載せる (例 `["v2"]`)。v2 は v1 から作るので v1 も焼いて Release に保存するが、
   サイトには載せない。v1 を読むのは卓上ボード (VmtMap) だけなので、東京より後の地域は v2 だけにしてサイトの容量を空けている。
+- v3 は `dists` に `v3` がある地域 (`dists` が無ければすべて) だけ焼く。東京は v3 を足すと 1 GB を超えるので、`["v2", "v3"]` にして
+  v1 を Pages から外した (Release には残っている。v1 を読む卓上ボード VmtMap は、ワールドでは非アクティブで使っていない)。
 
 今の地域 (床マップに合わせて、どれも z13 で 10 × 11 枚 = 床 20 m × 22 m):
 
 | name | 地域 | 中心 | 配る版 |
 |---|---|---|---|
-| tokyo | 東京 | (東京駅は中心から東へ 0.5 枚、南へ 0.3 枚) | v1, v2 |
+| tokyo | 東京 | (東京駅は中心から東へ 0.5 枚、南へ 0.3 枚) | v2, v3 (v1 は Release だけ) |
 | kobe | 神戸 | JR 三ノ宮駅 (z13 のタイルの境目にそろえたので、駅は中心から東へ 0.45 枚、北へ 0.2 枚) | v2 |
 | tokushima | 徳島 | 徳島駅 (駅は中心から西へ 0.2 枚、北へ 0.1 枚) | v2 |
 | osaka | 大阪 | 大阪駅 (東へ 0.3 枚、北へ 0.4 枚) | v2 (R2) |
@@ -129,7 +136,8 @@ python3 check_site.py https://kimkim0106.github.io/vrchat-osm-tiles/
 
 ## 形式の版
 
-`vmt_bake.py` の先頭に VMT-DT 1 (タイル)、`vmt_pack.py` の先頭に VMT-DT 2 (シート) の形式が書いてあります。
+`vmt_bake.py` の先頭に VMT-DT 1 (タイル)、`vmt_pack.py` の先頭に VMT-DT 2 (シート) の形式が書いてあります
+(v3 は VMT-DT 2 のシートで、ラベル頂点の T3.B に種類が入る)。
 タイルの形式の版は `vmt_bake.py` と `build_site.py` の `FORMAT_VERSION`、シートは `vmt_pack.py` と `build_site.py` の `SHEET_VERSION`、
 それと描く側のシェーダーで合っている必要があります (`build_site.py` は作った manifest の版が違うと止まる)。
 Pages はデプロイのたびにサイト全体を入れ替えますが、Actions は毎回すべての版の Release を戻すので、

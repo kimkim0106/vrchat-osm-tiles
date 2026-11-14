@@ -31,9 +31,11 @@
               T0 = 基準点 (地名の位置) の x, y。頂点レコードと同じ 12bit × 2
               T1 = 基準点からのずれ (タイル単位 + 2048) の x, y
               T2 = 文字アトラス内の位置。上位 12bit = 縁取りフラグ × 2048 + u、下位 12bit = v
-              T3 = (kmin, kmax, 0)  表示する文字の倍率 s の範囲。k = 8 log2(s) + 128 が kmin..kmax のとき表示する
-                   (0 / 255 は下限 / 上限なし)。倍率を上げても重ならないよう、ベイク時に倍率ごとに配置を決めてある
-            文字アトラス  48 × 48 の距離画像 (SDF) を横に 42 個ずつ並べる。R チャンネルのみ使う
+              T3 = (kmin, kmax, 種類)  表示する文字の倍率 s の範囲。k = 8 log2(s) + 128 が kmin..kmax のとき表示する
+                   (0 / 255 は下限 / 上限なし)。倍率を変えても重ならないよう、ベイク時に倍率ごとに配置を決めてある。
+                   種類は 0 = 地名、1.. = POI (POI_CATEGORIES)。シェーダーは _LabelMask のビットで種類ごとに出し入れし、
+                   種類ごとの色で描く。0 しか無い古いタイルもそのまま読める
+            文字アトラス  32 × 32 の距離画像 (SDF) を横に 63 個ずつ並べる (古いタイルは 48 × 48 を 42 個)。R チャンネルのみ使う
             ヘッダの列 9 / 10 / 11 / 12 にラベル頂点数 / ラベル開始行 / アトラス開始行 (24bit) / ラベル頂点のテクセル数
   行 H-1    列 0 にマーカー BOTTOM = (0x62, 0x6F, 0x74)。他は未使用
 
@@ -69,13 +71,18 @@ MITER_LIMIT = 2.0
 VERTS_PER_CHUNK = 196608  # プールメッシュ 1 枚で描ける頂点レコード数 (65536 三角形)
 
 # ラベル
-LABEL_CELL = 48          # アトラスの 1 文字のマス (px)
-LABEL_FONT_PX = 30       # マスに描くときの文字サイズ (px)
-LABEL_SPREAD = 6.0       # 距離画像が表す距離の幅 (px)
-LABEL_COLS = TEX_W // LABEL_CELL
+# アトラスはタイルごとに持つので、POI を入れるとタイルの高さの多くを占める (z14 で 1 枚 300 字ほど)。
+# 48 px (30 px の字) から 32 px (20 px の字) に下げて、行数を半分以下にした
+LABEL_CELL = 32          # アトラスの 1 文字のマス (px)
+LABEL_FONT_PX = 20       # マスに描くときの文字サイズ (px)
+LABEL_SPREAD = 4.0       # 距離画像が表す距離の幅 (px)。字の大きさとの比は 48 px のときと同じ
+# 1 段に並べる字数。u (マスの右端を含む) は 2048 未満でなければならない (2048 以上は縁取りフラグと区別できない) ので、
+# マスが 2048 をちょうど割り切るときは 1 つ減らす (32 px なら 63 字)
+LABEL_COLS = (TEX_W - 1) // LABEL_CELL
 LABEL_VERTS_PER_POOL = 16380  # ラベル用プールメッシュの頂点数 (3 の倍数)
 LABEL_STRIDE = 4         # ラベル頂点 1 つのテクセル数
-LABEL_SCALE_STEPS = 24   # 重なりを調べる倍率は 2^(k/8)、k = 0..24 (1 倍から 8 倍)
+LABEL_SCALE_MIN = -24    # 重なりを調べる倍率は 2^(k/8)、k = LABEL_SCALE_MIN..LABEL_SCALE_STEPS (1/8 倍から 8 倍)
+LABEL_SCALE_STEPS = 24   # 1 倍未満は床を拡大したとき (文字の倍率を zoom で割る) に使い、拡大するほど多く出る
 LABEL_CHOME_MERGE_M = 1500.0  # 丁目違いをまとめる距離 (m)
 LABEL_DEDUP_M = 3000.0        # この距離以内の同名の地名は 1 つにする (m)
 # 地名の種別 -> (512px タイルでの文字サイズ px, 優先度, 周囲に空ける余白 px)。優先度は小さいほど先に置く。
@@ -84,7 +91,61 @@ LABEL_CLASSES = {
     "city": (18, 0, 4), "town": (15, 1, 4), "village": (13, 2, 4), "suburb": (13, 3, 6),
     "quarter": (12, 4, 10), "neighbourhood": (10, 5, 26), "hamlet": (10, 6, 26),
 }
-LABEL_CONFIG = {"font": None, "lang": None, "enabled": True, "spacing": 1.0}
+# POI (OpenMapTiles の poi レイヤー) の種類。番号はラベル頂点の T3.B で、シェーダーの _LabelMask のビット番号
+# (0 は地名)。size / pri / margin は LABEL_CLASSES と同じ意味で、pri は地名と同じ尺度 (小さいほど先に置く)。
+# dedup = この距離 (m) 以内の同名の POI は 1 つにする (同じ駅の別の路線、同じ施設の点と面など)。
+# 色はシェーダー (VmtCore.cginc の VmtLabelCategoryColor) にある
+POI_CATEGORIES = {
+    # 駅は z14 (足元の詳細) では地名より先に置く (pri14。「東京都」に押されて東京駅が出ない、などを防ぐ)。
+    # z13 以下は数が多い (東京で 700) ので地名の後にする
+    1: {"key": "station", "title": "駅", "size": 12, "pri": 2.5, "pri14": -0.5, "margin": 6, "dedup": 600.0},
+    2: {"key": "sight", "title": "観光・名所", "size": 11, "pri": 3.5, "margin": 6, "dedup": 300.0},
+    3: {"key": "worship", "title": "神社・寺", "size": 10, "pri": 4.3, "margin": 6, "dedup": 150.0},
+    4: {"key": "park", "title": "公園", "size": 10, "pri": 4.6, "margin": 6, "dedup": 150.0},
+    5: {"key": "public", "title": "公共施設", "size": 9, "pri": 4.8, "margin": 4, "dedup": 150.0},
+    6: {"key": "lodging", "title": "宿泊", "size": 9, "pri": 5.2, "margin": 4, "dedup": 100.0},
+    7: {"key": "food", "title": "飲食", "size": 9, "pri": 5.6, "margin": 3, "dedup": 50.0},
+    8: {"key": "shop", "title": "買い物", "size": 9, "pri": 5.8, "margin": 3, "dedup": 50.0},
+}
+POI_MAX_CHARS = 16  # これより長い名前の POI は載せない
+_POI_SKIP_SUFFIX = ("交番", "駐在所")  # 数が多く、観光の役に立たない
+_POI_SIGHT = {"attraction", "museum", "zoo", "aquarium", "theme_park", "castle", "monument", "viewpoint"}
+_POI_PUBLIC = {"town_hall", "police", "fire_station", "college"}
+_POI_FOOD = {"restaurant", "cafe", "fast_food", "bar", "beer", "ice_cream", "bakery"}
+_POI_SHOP = {"shop", "grocery", "clothing_store", "alcohol_shop", "pharmacy", "jewelry", "music", "mobile_phone",
+             "department_store"}
+
+
+def poi_category(props):
+    """poi レイヤーの地物の種類 (POI_CATEGORIES の番号)。載せないものは None。"""
+    cls, sub = props.get("class"), props.get("subclass")
+    if cls == "railway":
+        return 1 if sub in ("station", "subway", "halt", None) else None
+    if cls in _POI_SIGHT or (cls == "art_gallery" and sub == "museum"):
+        return 2
+    if cls == "place_of_worship":
+        return 3
+    if cls in ("park", "garden"):
+        return 4
+    if cls in _POI_PUBLIC or (cls == "library" and sub == "library") or (cls == "post" and sub == "post_office") \
+            or (cls == "hospital" and sub == "hospital"):
+        return 5
+    if cls == "lodging":
+        return 6
+    if cls in _POI_FOOD:
+        return 7
+    if cls in _POI_SHOP or (cls == "library" and sub == "books"):
+        return 8
+    return None
+
+
+def label_categories():
+    """manifest に書くラベルの種類の一覧 (0 = 地名)。"""
+    return [{"id": 0, "key": "place", "title": "地名"}] + \
+        [{"id": k, "key": v["key"], "title": v["title"]} for k, v in sorted(POI_CATEGORIES.items())]
+
+
+LABEL_CONFIG = {"font": None, "lang": None, "enabled": True, "spacing": 1.0, "poi": True}
 FONT_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc",
@@ -545,30 +606,49 @@ def _unit_m(z, lat):
 
 
 def label_candidates(db, z, tiles):
-    """ズーム z の全タイルから地名の候補を集める。座標はズーム z 全体でのタイル単位 (タイル x * 4096 + タイル内 x)。"""
+    """ズーム z の全タイルから地名と POI の候補を集める。座標はズーム z 全体でのタイル単位 (タイル x * 4096 + タイル内 x)。"""
     lang = LABEL_CONFIG["lang"]
+    layers = ("place", "poi") if LABEL_CONFIG.get("poi", True) else ("place",)
     cands = []
     for tx, ty in tiles:
         data = read_tile(db, z, tx, ty)
-        layer = decode_mvt(data, only=("place",)).get("place") if data else None
-        if not layer:
+        if not data:
             continue
-        scale = EXTENT / float(layer["extent"])
-        for feat in layer["features"]:
-            if feat["type"] != 1 or not feat["geom"]:
+        decoded = decode_mvt(data, only=layers)
+        for lname in layers:
+            layer = decoded.get(lname)
+            if not layer:
                 continue
-            props = feat["props"]
-            cls = LABEL_CLASSES.get(props.get("class"))
-            name = (props.get("name:" + lang) if lang else None) or props.get("name")
-            if cls is None or not name:
-                continue
-            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
-            if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある点は隣のタイルが持っている
-                continue
-            rank = props.get("rank", 99)
-            cands.append({"pri": cls[1], "rank": rank if isinstance(rank, (int, float)) else 99, "name": name,
-                          "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                          "size": cls[0], "margin": cls[2] * LABEL_CONFIG["spacing"]})
+            scale = EXTENT / float(layer["extent"])
+            for feat in layer["features"]:
+                if feat["type"] != 1 or not feat["geom"]:
+                    continue
+                props = feat["props"]
+                name = (props.get("name:" + lang) if lang else None) or props.get("name")
+                if not name:
+                    continue
+                if lname == "place":
+                    cls = LABEL_CLASSES.get(props.get("class"))
+                    if cls is None:
+                        continue
+                    cat, size, pri, margin = 0, cls[0], cls[1], cls[2]
+                else:
+                    cat = poi_category(props)
+                    if cat is None:
+                        continue
+                    pc = POI_CATEGORIES[cat]
+                    if cat == 1 and lang == "ja" and not name.endswith("駅"):
+                        name += "駅"
+                    if len(name) > POI_MAX_CHARS or name.endswith(_POI_SKIP_SUFFIX):
+                        continue
+                    size, pri, margin = pc["size"], pc.get("pri14", pc["pri"]) if z >= 14 else pc["pri"], pc["margin"]
+                x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+                if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある点は隣のタイルが持っている
+                    continue
+                rank = props.get("rank", 99)
+                cands.append({"pri": pri, "rank": rank if isinstance(rank, (int, float)) else 99, "name": name,
+                              "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                              "size": size, "margin": margin * LABEL_CONFIG["spacing"]})
     return cands
 
 
@@ -599,7 +679,7 @@ def merge_labels(cands, unit_m):
     out = []
     chome = {}
     for c in cands:
-        m = _CHOME.match(c["name"])
+        m = _CHOME.match(c["name"]) if c["cat"] == 0 else None
         if m:
             chome.setdefault(m.group(1), []).append(c)
         else:
@@ -612,52 +692,82 @@ def merge_labels(cands, unit_m):
             merged["x"] = sum(c["x"] for c in group) / len(group)
             merged["y"] = sum(c["y"] for c in group) / len(group)
             out.append(merged)
-    out.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
-    kept = []
-    limit = LABEL_DEDUP_M / unit_m
+    # 同じ種類の中では、近くに同名の点が多いもの (駅なら乗り入れる路線が多いもの) を先に置く
+    groups = {}
     for c in out:
-        if any(k["name"] == c["name"] and math.hypot(k["x"] - c["x"], k["y"] - c["y"]) <= limit for k in kept):
+        groups.setdefault((c["cat"], "".join(c["name"].split())), []).append(c)
+    for (cat, _), members in groups.items():
+        limit = (LABEL_DEDUP_M if cat == 0 else POI_CATEGORIES[cat]["dedup"]) / unit_m
+        for c in members:
+            c["lines"] = sum(1 for d in members if math.hypot(d["x"] - c["x"], d["y"] - c["y"]) <= limit)
+    out.sort(key=lambda c: (c["pri"], -c["lines"] if c["cat"] else 0, c["rank"], c["name"], c["x"], c["y"]))
+    kept = []
+    seen = {}  # (種類, 名前) -> 残したものの位置。駅と地名が同名でも、種類が違えば両方残す (片方を消して出せるように)
+    for c in out:
+        limit = (LABEL_DEDUP_M if c["cat"] == 0 else POI_CATEGORIES[c["cat"]]["dedup"]) / unit_m
+        same = seen.setdefault((c["cat"], "".join(c["name"].split())), [])  # 空白の有無の違いは同名とみなす
+        if any(math.hypot(x - c["x"], y - c["y"]) <= limit for x, y in same):
             continue
+        same.append((c["x"], c["y"]))
         kept.append(c)
     return kept
 
 
 def place_labels(cands):
-    """優先度の高いものから置き、重なるものを捨てる。これを倍率 2^(k/8) (k = 0..LABEL_SCALE_STEPS) ごとに行い、
+    """優先度の高いものから置き、重なるものを捨てる。これを倍率 2^(k/8) (k = LABEL_SCALE_MIN..LABEL_SCALE_STEPS) ごとに行い、
     各ラベルが表示される倍率の範囲 (k の最小と最大が続いている区間) を "kmin" / "kmax" に入れる。
-    一度も置けないものは捨てる。文字は 90° 単位で回るので、横向きと縦向きの両方で重ならないことを確かめる。"""
+    一度も置けないものは捨てる。文字は 90° 単位で回るので、横向きと縦向きの両方で重ならないことを確かめる。
+    種類 (地名 / POI) をまたいで判定する。種類を消しても、それに押されて置けなかったものは出ない (重ならないことを優先)。
+    候補が多い (POI は 1 ズームで十数万) ので、置いたラベルを格子に入れて近くだけ調べる。"""
     px = EXTENT / 512.0
     n = len(cands)
     if n == 0:
         return []
-    xs = np.array([c["x"] for c in cands])
-    ys = np.array([c["y"] for c in cands])
-    hw = np.empty(n)
-    hh = np.empty(n)
-    mg = np.empty(n)
+    xs = [c["x"] for c in cands]
+    ys = [c["y"] for c in cands]
+    hw = [0.0] * n
+    hh = [0.0] * n
+    mg = [0.0] * n
     for i, c in enumerate(cands):
         k = c["size"] / float(LABEL_FONT_PX)
         c["advs"] = [glyph_sdf(ch)[1] * k for ch in c["name"]]
         hw[i] = sum(c["advs"]) / 2 * px
         hh[i] = c["size"] * 0.6 * px
         mg[i] = c["margin"] * px
-    steps = LABEL_SCALE_STEPS + 1
-    shown = np.zeros((n, steps), dtype=bool)
-    for k in range(steps):
+    # 箱の半径 (向きを問わない)。重なりうるのは中心どうしが (r_j + r_i + 余白_i) 未満のときだけ
+    rad = [max(hw[i], hh[i]) for i in range(n)]
+    rmax = max(rad)
+    cell0 = 2.0 * sorted(rad)[int(n * 0.9)] + max(mg)
+    ks = list(range(LABEL_SCALE_MIN, LABEL_SCALE_STEPS + 1))
+    shown = np.zeros((n, len(ks)), dtype=bool)
+    for si, k in enumerate(ks):
         s = 2.0 ** (k / 8.0)
-        placed = np.zeros(n, dtype=bool)
+        cell = cell0 * s
+        grid = {}
         for i in range(n):
-            j = placed
-            if j.any():
-                dx = np.abs(xs[j] - xs[i])
-                dy = np.abs(ys[j] - ys[i])
-                # 既に置いたラベルの箱 (余白なし) と、自分の箱を余白ぶん広げたもの
-                w = (hw[j] + hw[i] + mg[i]) * s
-                h = (hh[j] + hh[i] + mg[i]) * s
-                if np.any(((dx < w) & (dy < h)) | ((dx < h) & (dy < w))):
-                    continue
-            placed[i] = True
-        shown[:, k] = placed
+            gx, gy = int(xs[i] // cell), int(ys[i] // cell)
+            r = int(math.ceil((rad[i] + rmax + mg[i]) * s / cell))
+            hit = False
+            for cx in range(gx - r, gx + r + 1):
+                for cy in range(gy - r, gy + r + 1):
+                    for j in grid.get((cx, cy), ()):
+                        dx = abs(xs[j] - xs[i])
+                        dy = abs(ys[j] - ys[i])
+                        # 既に置いたラベルの箱 (余白なし) と、自分の箱を余白ぶん広げたもの
+                        w = (hw[j] + hw[i] + mg[i]) * s
+                        h = (hh[j] + hh[i] + mg[i]) * s
+                        if (dx < w and dy < h) or (dx < h and dy < w):
+                            hit = True
+                            break
+                    if hit:
+                        break
+                if hit:
+                    break
+            if hit:
+                continue
+            grid.setdefault((gx, gy), []).append(i)
+            shown[i, si] = True
+    steps = len(ks)
     out = []
     for i, c in enumerate(cands):
         row = shown[i]
@@ -672,8 +782,8 @@ def place_labels(cands):
                 start = None
         if best is None:
             continue
-        c["kmin"] = 0 if best[0] == 0 else 128 + best[0]
-        c["kmax"] = 255 if best[1] == steps - 1 else 128 + best[1]
+        c["kmin"] = 0 if best[0] == 0 else 128 + ks[best[0]]
+        c["kmax"] = 255 if best[1] == steps - 1 else 128 + ks[best[1]]
         out.append(c)
     return out
 
@@ -696,17 +806,22 @@ def plan_labels(db, levels, lat):
                 continue
             plan.setdefault((z,) + key, []).append(c)
             count += 1
-        print(f"z{z}: labels {count} (candidates {len(cands)})", flush=True)
+        cats = {}
+        for c in placed:
+            cats[c["cat"]] = cats.get(c["cat"], 0) + 1
+        print(f"z{z}: labels {count} (candidates {len(cands)}) by category {dict(sorted(cats.items()))}", flush=True)
     return plan
 
 
-def build_labels(planned, z, tx, ty):
-    """plan_labels で決めたラベルの頂点を作る。戻り値は (ラベル頂点 (n, 9), アトラス画像 (rows, 2048) または None, ラベル数)。
+def build_labels(planned, z, tx, ty, max_atlas_rows=MAX_H):
+    """plan_labels で決めたラベルの頂点を作る。戻り値は (ラベル頂点 (n, 10), アトラス画像 (rows, 2048) または None, ラベル数)。
 
     ラベル頂点 = 基準点 x, y / ずれ x, y (いずれもタイル単位) / アトラス u, v (px) / 縁取りフラグ /
-    表示する倍率の範囲 (kmin, kmax)。プールメッシュに収まらない分は優先度の低いものから捨てる。
+    表示する倍率の範囲 (kmin, kmax) / 種類。プールメッシュに収まらない分と、文字アトラスが max_atlas_rows 行を
+    超える分 (テクスチャの高さの上限) は優先度の低いものから捨てる。
     """
-    empty = (np.zeros((0, 9)), None, 0)
+    empty = (np.zeros((0, 10)), None, 0)
+    max_glyphs = (max_atlas_rows // LABEL_CELL) * LABEL_COLS
     if not planned:
         return empty
     px = EXTENT / 512.0
@@ -717,6 +832,8 @@ def build_labels(planned, z, tx, ty):
     for lab in planned:
         chars = [ch for ch in lab["name"] if not ch.isspace()]
         if len(halo_quads) + len(text_quads) + 12 * len(chars) > LABEL_VERTS_PER_POOL:
+            continue
+        if len(glyphs) + len(set(ch for ch in chars if ch not in glyphs)) > max_glyphs:
             continue
         x, y = lab["x"] - tx * EXTENT, lab["y"] - ty * EXTENT
         k = lab["size"] / float(LABEL_FONT_PX)
@@ -733,7 +850,7 @@ def build_labels(planned, z, tx, ty):
                 for flag, dst in ((1, halo_quads), (0, text_quads)):
                     for cx, cy in corners:
                         dst.append((x, y, left + cx * w, top + cy * w, u0 + cx * c, v0 + cy * c, flag,
-                                    lab["kmin"], lab["kmax"]))
+                                    lab["kmin"], lab["kmax"], lab.get("cat", 0)))
             pen += adv
         count += 1
     if not glyphs:
@@ -865,6 +982,7 @@ def build_texture(records, style, z, x, y, labels=None, atlas=None):
         flat[2:end:st] = pack12(u, v)
         flat[3:end:st, 0] = labels[:, 7].astype(np.uint8)
         flat[3:end:st, 1] = labels[:, 8].astype(np.uint8)
+        flat[3:end:st, 2] = labels[:, 9].astype(np.uint8)
         tex[label_row:label_row + label_rows] = flat.reshape(label_rows, TEX_W, 3)
         tex[atlas_row:atlas_row + atlas_rows, :, 0] = atlas
     tex[h - 1, 0] = MARK_BOTTOM
@@ -911,7 +1029,10 @@ def bake_tile(db, style, z, x, y, planned=None):
     data = read_tile(db, z, x, y)
     layers = decode_mvt(data) if data else {}
     records, stats = build_records(layers, style, z)
-    labels, atlas, count = build_labels(planned, z, x, y)
+    # 文字アトラスに使える行 = 高さの上限 - ヘッダ類 - 頂点レコード - ラベル頂点 (プールいっぱいのとき) - 末尾の行
+    data_rows = (2 * len(records) + TEX_W - 1) // TEX_W
+    label_rows = (LABEL_STRIDE * LABEL_VERTS_PER_POOL + TEX_W - 1) // TEX_W
+    labels, atlas, count = build_labels(planned, z, x, y, MAX_H - DATA_ROW - data_rows - label_rows - 1)
     stats["_labels"] = count
     stats["_labelVertices"] = len(labels)
     tex = build_texture(records, style, z, x, y, labels, atlas)
@@ -979,6 +1100,7 @@ def main(argv=None):
     ap.add_argument("--label-spacing", type=float, default=1.0,
                     help="ラベルの周囲に空ける余白の倍率。大きくすると疎に、小さくすると密になる (既定 1.0)")
     ap.add_argument("--no-labels", action="store_true", help="ラベルを焼かない")
+    ap.add_argument("--no-poi", action="store_true", help="POI (駅・観光地・店など) をラベルに入れない (地名だけ)")
     args = ap.parse_args(argv)
 
     if args.bbox:
@@ -993,7 +1115,8 @@ def main(argv=None):
     else:
         z0 = z1 = int(args.zooms)
     style = load_style(args.style)
-    LABEL_CONFIG.update(font=args.font, lang=args.lang, enabled=not args.no_labels, spacing=args.label_spacing)
+    LABEL_CONFIG.update(font=args.font, lang=args.lang, enabled=not args.no_labels, spacing=args.label_spacing,
+                        poi=not args.no_poi)
     db = sqlite3.connect(f"file:{args.mbtiles}?mode=ro", uri=True)
     if not args.dry_run:
         os.makedirs(args.out, exist_ok=True)
@@ -1071,7 +1194,8 @@ def main(argv=None):
         "format": "VMT-DT", "version": FORMAT_VERSION, "width": TEX_W,
         "vertsPerChunk": VERTS_PER_CHUNK, "center": [lon, lat],
         "labelConfig": {"font": LABEL_CONFIG["font"], "lang": LABEL_CONFIG["lang"], "enabled": LABEL_CONFIG["enabled"],
-                        "spacing": LABEL_CONFIG["spacing"]},
+                        "spacing": LABEL_CONFIG["spacing"], "poi": LABEL_CONFIG["poi"]},
+        "labelCategories": label_categories() if LABEL_CONFIG["poi"] else label_categories()[:1],
         "levels": levels, "tiles": tiles,
         "styles": [r["name"] for r in style],
         "attribution": source_attribution or "© OpenStreetMap contributors",
