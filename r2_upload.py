@@ -37,14 +37,24 @@ TYPES = {".png": "image/png", ".bin": "application/octet-stream",
 GZIP = {".bin", ".json", ".html"}
 
 
-def aws(*args, check=True):
+def aws(*args):
     cmd = ["aws", "--endpoint-url", f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com", *args]
     print("+ aws " + " ".join(args), flush=True)
-    return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL if not check else None).returncode
+    subprocess.run(cmd, check=True)
 
 
 def exists(bucket, key):
-    return aws("s3api", "head-object", "--bucket", bucket, "--key", key, check=False) == 0
+    """R2 にそのキーがあるか。無いとき (404) は aws が出す「[ERROR] ... Not Found」を表示しない (想定どおりなので)。
+    ほかのエラー (認証やネットワーク) はそのまま表示する。"""
+    args = ("s3api", "head-object", "--bucket", bucket, "--key", key)
+    cmd = ["aws", "--endpoint-url", f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com", *args]
+    print("+ aws " + " ".join(args), flush=True)
+    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if r.returncode == 0:
+        return True
+    if "(404)" not in r.stderr and "Not Found" not in r.stderr:
+        print(r.stderr.strip(), file=sys.stderr, flush=True)
+    return False
 
 
 def stage(src, dst):
