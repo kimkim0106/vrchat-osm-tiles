@@ -44,6 +44,11 @@ regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudfl
 DIR/ を R2 に上げるのは r2_upload.py。R2 は VRChat の信頼済みドメインではないので、
 その地域は「Allow Untrusted URLs」をオンにした人にしか読めない。
 
+regions.json の地域に "binGroups": {"dists": ["v3"], "zooms": [13, 14]} があれば、--bin-groups R2_URL のとき、
+その版のシートを数枚ずつ縦につないだ .bin (まとめた .bin、vmt_bingroup.py) を R2 に作る (Pages の地域でも R2 に置く。
+Pages は容量を生の大きさで数えるので入らない)。String Loading で 1 回に数枚取れるので、床の取得が速くなる。
+R2 を読めない人 (「Allow Untrusted URLs」がオフ) は、床が 2 回失敗した後でシートごとの取得に戻る。
+
 --tools には planetiler.jar と NotoSansCJK-Regular.ttc を置く。
 """
 import argparse
@@ -152,6 +157,10 @@ def validate_regions(regions):
             sys.exit(f"{r['name']}: 同じ版を dists と releaseOnly の両方に書いている")
         if r.get("host", "pages") not in HOSTS:
             sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
+        groups = r.get("binGroups")
+        if groups is not None:
+            if set(groups) != {"dists", "zooms"} or set(groups["dists"]) - {SHEET_DIST, POI_DIST} or not groups["zooms"]:
+                sys.exit(f"{r['name']}: binGroups は {{\"dists\": [シートの版], \"zooms\": [ズーム]}}")
 
 
 def bake_tiles(region, mbtiles, tools, out, jobs, poi):
@@ -243,6 +252,27 @@ def move_r2(site, r2, regions):
                 shutil.move(src, os.path.join(r2, dist, r["name"]))
 
 
+def bin_groups(site, r2, regions, base_url):
+    """
+    binGroups を指定した地域の、その版のシートからまとめた .bin を作る (vmt_bingroup.py)。置き場所は R2 (r2/<版>/<地域>/)。
+    manifest (Pages の地域なら site/ のもの) に binGroupBase と binGroups を書き足す。中身は Release のシートから毎回作り直すが、
+    同じシートからは同じものができる (パスにはまとめ方のハッシュが入る)。
+    """
+    base_url = base_url if base_url.endswith("/") else base_url + "/"
+    for r in regions:
+        cfg = r.get("binGroups")
+        if not cfg:
+            continue
+        for dist in cfg["dists"]:
+            src = next((os.path.join(root, dist, r["name"]) for root in (site, r2)
+                        if os.path.exists(os.path.join(root, dist, r["name"], "manifest.json"))), None)
+            if src is None:
+                continue  # その版を配っていない (releaseOnly など)
+            run([sys.executable, os.path.join(HERE, "vmt_bingroup.py"), src,
+                 "--zooms", ",".join(str(z) for z in cfg["zooms"]),
+                 "--base-url", f"{base_url}{dist}/{r['name']}/", "--bins", os.path.join(r2, dist, r["name"])])
+
+
 def dist_dirs(site):
     """site/ にある版のディレクトリ (v1, v2, ...) を番号順に返す。"""
     found = []
@@ -320,6 +350,8 @@ def main():
     ap.add_argument("--index-only", action="store_true", help="焼かずに、置いてある地域から索引だけ作る")
     ap.add_argument("--prune", action="store_true", help="regions.json の dists に無い版を site/ から外す (Release に保存した後で)")
     ap.add_argument("--r2", default=None, help="host が r2 の地域をこのディレクトリに移し、ここにも索引を作る (Release に保存した後で)")
+    ap.add_argument("--bin-groups", default=None, metavar="R2_URL",
+                    help="binGroups の地域のまとめた .bin を --r2 のディレクトリに作る。R2 の公開 URL を渡す")
     args = ap.parse_args()
     os.makedirs(args.site, exist_ok=True)
 
@@ -356,8 +388,12 @@ def main():
 
     if args.prune:
         prune(args.site, regions)
+    if args.bin_groups and not args.r2:
+        sys.exit("--bin-groups には --r2 が要る")
     if args.r2:
         move_r2(args.site, args.r2, regions)
+        if args.bin_groups:
+            bin_groups(args.site, args.r2, regions, args.bin_groups)
         r2_total = write_indexes(args.r2)
         print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
     total = write_indexes(args.site)

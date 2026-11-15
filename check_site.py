@@ -80,6 +80,12 @@ def check_dist(base, version):
             url = root + s["bin"]
             check(url, "HEAD", "application/octet-stream", 6)
             print(f"OK {url}")
+        # まとめた .bin (vmt_bingroup.py。Pages の地域でも R2 に置く)
+        groups = manifest.get("binGroups") or []
+        for g in groups[:1] + groups[-1:]:
+            url = manifest["binGroupBase"] + g["bin"]
+            check(url, "HEAD", "application/octet-stream", 6)
+            print(f"OK {url}")
 
 
 def main():
