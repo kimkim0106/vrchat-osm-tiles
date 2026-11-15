@@ -262,8 +262,11 @@ jobs:
         with:
           path: site
 
+  # bake が飛ばされた (焼く地域が無い) 実行でも出す。GitHub は飛ばされた job の後ろの job を、if に状態の関数が
+  # 無ければ全部飛ばすので、publish の結果だけを見る
   deploy:
     needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -280,6 +283,7 @@ jobs:
   # VRChat はリダイレクトを読めないので、配信後に実際の URL で確かめる
   check:
     needs: [publish, deploy]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
