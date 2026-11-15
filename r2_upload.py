@@ -8,6 +8,10 @@ R2 の地域も Pages と同じく固定する (ワールドは manifest の頂�
 R2 に manifest.json が無い地域だけ。上げる順は画像と生データが先、manifest.json が最後
 (途中で止まっても、manifest が無ければ次の実行で上げ直す)。
 
+まとめた .bin (vmt_bingroup.py。DIR/<版>/<地域>/bingroups/<まとめ方のハッシュ>/z/k.bin) は、Pages の地域のものも
+ここに置く (その地域のディレクトリには manifest.json と bingroups/ だけがある)。地域が R2 にあっても、manifest の
+binGroups の .bin が R2 に無ければ、それだけ上げる (まとめ方を変えるとハッシュが変わり、別のパスになる)。
+
 圧縮: .bin (RGB24 の生データ) と .json / .html は gzip にして Content-Encoding: gzip を付けて置く。
 PNG はもともと圧縮してあるのでそのまま。Pages も .bin を gzip で返している (UnityWebRequest は自分で展開する)。
 
@@ -20,6 +24,7 @@ aws CLI (S3 互換 API) を使う。環境変数:
 """
 import argparse
 import gzip
+import json
 import os
 import shutil
 import subprocess
@@ -47,15 +52,18 @@ def stage(src, dst):
     for root, _, files in os.walk(src):
         for name in files:
             s = os.path.join(root, name)
-            d = os.path.join(dst, os.path.relpath(s, src))
-            os.makedirs(os.path.dirname(d), exist_ok=True)
-            if os.path.splitext(name)[1] in GZIP:
-                with open(s, "rb") as f:
-                    data = f.read()
-                with open(d, "wb") as f:
-                    f.write(gzip.compress(data, compresslevel=9, mtime=0))
-            else:
-                shutil.copyfile(s, d)
+            stage_file(s, os.path.join(dst, os.path.relpath(s, src)))
+
+
+def stage_file(s, d):
+    os.makedirs(os.path.dirname(d), exist_ok=True)
+    if os.path.splitext(s)[1] in GZIP:
+        with open(s, "rb") as f:
+            data = f.read()
+        with open(d, "wb") as f:
+            f.write(gzip.compress(data, compresslevel=9, mtime=0))
+    else:
+        shutil.copyfile(s, d)
 
 
 def put_tree(local, bucket, prefix, exts):
@@ -82,9 +90,8 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         staged = os.path.join(tmp, "r2")
-        stage(args.dir, staged)
-        for dist in sorted(os.listdir(staged)):
-            ddir = os.path.join(staged, dist)
+        for dist in sorted(os.listdir(args.dir)):
+            ddir = os.path.join(args.dir, dist)
             if not os.path.isdir(ddir):
                 continue
             for name in sorted(os.listdir(ddir)):
@@ -92,26 +99,48 @@ def main():
                 if not os.path.isdir(rdir):
                     continue
                 prefix = f"{dist}/{name}/"
-                if name not in force and f"{dist}/{name}" not in force and exists(bucket, prefix + "manifest.json"):
+                sdir = os.path.join(staged, dist, name)
+                if name in force or f"{dist}/{name}" in force or not exists(bucket, prefix + "manifest.json"):
+                    print(f"{prefix}: 上げる")
+                    stage(rdir, sdir)  # gzip にするのは上げる地域だけ
+                    put_tree(sdir, bucket, prefix, [".png", ".bin"])
+                    put_jsons(sdir, bucket, prefix)
+                elif missing_bin_groups(rdir, bucket, prefix):
+                    # 地域はあるが、まとめた .bin (まとめ方ごとに別のパス) がまだ無い。それだけ上げる
+                    print(f"{prefix}: まとめた .bin を上げる")
+                    stage(os.path.join(rdir, "bingroups"), os.path.join(sdir, "bingroups"))
+                    put_tree(os.path.join(sdir, "bingroups"), bucket, prefix + "bingroups/", [".bin"])
+                    stage_file(os.path.join(rdir, "manifest.json"), os.path.join(sdir, "manifest.json"))
+                    put_jsons(sdir, bucket, prefix)
+                else:
                     print(f"{prefix}: R2 にある (上げない)")
-                    continue
-                print(f"{prefix}: 上げる")
-                put_tree(rdir, bucket, prefix, [".png", ".bin"])
-                region_json = os.path.join(rdir, "region.json")
-                aws("s3", "cp", region_json, f"s3://{bucket}/{prefix}region.json", "--only-show-errors",
-                    "--content-type", TYPES[".json"], "--content-encoding", "gzip", "--cache-control", CACHE)
-                aws("s3", "cp", os.path.join(rdir, "manifest.json"), f"s3://{bucket}/{prefix}manifest.json",
-                    "--only-show-errors", "--content-type", TYPES[".json"], "--content-encoding", "gzip",
-                    "--cache-control", CACHE)
+                shutil.rmtree(sdir, ignore_errors=True)
             index = os.path.join(ddir, "index.json")
             if os.path.exists(index):
-                aws("s3", "cp", index, f"s3://{bucket}/{dist}/index.json", "--only-show-errors",
+                stage_file(index, os.path.join(staged, dist, "index.json"))
+                aws("s3", "cp", os.path.join(staged, dist, "index.json"), f"s3://{bucket}/{dist}/index.json", "--only-show-errors",
                     "--content-type", TYPES[".json"], "--content-encoding", "gzip", "--cache-control", "no-cache")
-        page = os.path.join(staged, "index.html")
+        page = os.path.join(args.dir, "index.html")
         if os.path.exists(page):
-            aws("s3", "cp", page, f"s3://{bucket}/index.html", "--only-show-errors",
+            stage_file(page, os.path.join(staged, "index.html"))
+            aws("s3", "cp", os.path.join(staged, "index.html"), f"s3://{bucket}/index.html", "--only-show-errors",
                 "--content-type", TYPES[".html"], "--content-encoding", "gzip", "--cache-control", "no-cache")
 
+
+def put_jsons(sdir, bucket, prefix):
+    """region.json (あれば) と manifest.json を上げる。manifest.json は最後 (これが「上げ終わった」印)。"""
+    for name in ("region.json", "manifest.json"):
+        path = os.path.join(sdir, name)
+        if os.path.exists(path):
+            aws("s3", "cp", path, f"s3://{bucket}/{prefix}{name}", "--only-show-errors",
+                "--content-type", TYPES[".json"], "--content-encoding", "gzip", "--cache-control", CACHE)
+
+
+def missing_bin_groups(rdir, bucket, prefix):
+    """manifest にまとめた .bin があり、その最初と最後が R2 に無いか。"""
+    with open(os.path.join(rdir, "manifest.json"), encoding="utf-8") as f:
+        groups = json.load(f).get("binGroups") or []
+    return any(not exists(bucket, prefix + g["bin"]) for g in groups[:1] + groups[-1:])
 
 if __name__ == "__main__":
     main()

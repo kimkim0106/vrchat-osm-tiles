@@ -12,7 +12,16 @@
    ],
    "dists": [
     "v3"
-   ]
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   }
   },
   {
    "name": "kobe",
@@ -27,7 +36,16 @@
    "dists": [
     "v2",
     "v3"
-   ]
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   }
   },
   {
    "name": "tokushima",
@@ -42,7 +60,16 @@
    "dists": [
     "v2",
     "v3"
-   ]
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   }
   },
   {
    "name": "osaka",
@@ -60,6 +87,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   },
   {
@@ -78,6 +114,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   },
   {
@@ -96,6 +141,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   },
   {
@@ -114,6 +168,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   },
   {
@@ -132,6 +195,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   },
   {
@@ -150,6 +222,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   },
   {
@@ -168,6 +249,15 @@
    "releaseOnly": [
     "v3"
    ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
    "host": "r2"
   }
  ]

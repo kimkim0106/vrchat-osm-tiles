@@ -197,6 +197,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
     outputs:
       pages_dists: ${{ steps.index.outputs.pages_dists }}
       r2_dists: ${{ steps.index.outputs.r2_dists }}
@@ -221,13 +222,22 @@ jobs:
           done < restore.txt
           df -h / | tail -1
 
+      # まとめた .bin (vmt_bingroup.py) を作るのに numpy と Pillow が要る
+      - run: pip install -r requirements.txt
+
       # dists を指定した地域は、その版だけを配る (Release には全部の版を保存してある)
       # host が r2 の地域は r2site/ に移す (Pages には載せない)
+      # binGroups の地域は、まとめた .bin を r2site/ に作る (Pages の地域も R2 に置く)。R2 が無ければ作らない
       - name: 索引を作る
         id: index
         run: |
           set -euo pipefail
-          python build_site.py --site site --index-only --prune --r2 r2site
+          groups=()
+          if [ -n "$R2_ACCOUNT_ID" ] && [ -n "$R2_BUCKET" ] && [ -n "$R2_PUBLIC_URL" ]; then
+            groups=(--bin-groups "$R2_PUBLIC_URL")
+          fi
+          python build_site.py --site site --index-only --prune --r2 r2site "${groups[@]}"
+          du -sh r2site
           # 地域が 1 つでもある版だけを配信後に確かめる
           echo "pages_dists=$(python plan_build.py dists site)" >> "$GITHUB_OUTPUT"
           echo "r2_dists=$(python plan_build.py dists r2site)" >> "$GITHUB_OUTPUT"
