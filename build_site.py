@@ -36,6 +36,8 @@ v3 は v1 とは別に焼く (同じ MBTiles から。--poi)。
 regions.json の地域に "dists": ["v2"] があれば、その版だけを配る (--prune が他の版のディレクトリを site/ から外す)。
 v2 は v1 から作るので v1 も焼いて Release には保存するが、Pages には載せない (サイトの容量を空けるため)。
 v3 は dists に v3 がある地域 (dists が無ければすべて) だけ焼く (wants_dist)。
+"releaseOnly": ["v3"] の版は、焼いて Release に保存するが配らない (--prune が外す)。
+配る前に確かめたいとき (R2 の v3 など) に使い、確かめたら dists に移す (Release から戻して配る。焼き直さない)。
 
 regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudflare R2 に置く (Pages の 1 GB に入らないため)。
 --r2 DIR を付けると、索引を作る前にその地域を site/ から DIR/ に移し、DIR/ にも R2 用の索引を作る。
@@ -122,11 +124,34 @@ def write_region_json(out, entry):
 
 
 def wants_dist(region, dist):
-    """その地域でその版を作るか。dists が無ければすべての版。v2 を配るなら、その元の v1 も作る。"""
+    """
+    その地域でその版を作るか (焼いて Release に保存するか)。dists が無ければすべての版。
+    releaseOnly の版も作る (配らないだけ)。v2 を作るなら、その元の v1 も作る。
+    """
     dists = region.get("dists")
     if dists is None:
         return True
-    return dist in dists or (dist == DIST and SHEET_DIST in dists)
+    made = set(dists) | set(region.get("releaseOnly") or [])
+    return dist in made or (dist == DIST and SHEET_DIST in made)
+
+
+def validate_regions(regions):
+    """regions.json の中身を確かめる (Actions の plan と build_site.py の両方から呼ぶ)。"""
+    names = [r["name"] for r in regions]
+    if len(set(names)) != len(names):
+        sys.exit("regions.json の name が重複している")
+    for r in regions:
+        dists = r.get("dists")
+        only = r.get("releaseOnly") or []
+        bad = (set(dists or []) | set(only)) - set(DISTS)
+        if bad:
+            sys.exit(f"{r['name']}: dists / releaseOnly に知らない版 {', '.join(sorted(bad))}")
+        if only and dists is None:
+            sys.exit(f"{r['name']}: releaseOnly を使うときは dists も書く (dists が無いとすべての版を配る)")
+        if set(only) & set(dists or []):
+            sys.exit(f"{r['name']}: 同じ版を dists と releaseOnly の両方に書いている")
+        if r.get("host", "pages") not in HOSTS:
+            sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
 
 
 def bake_tiles(region, mbtiles, tools, out, jobs, poi):
@@ -300,15 +325,8 @@ def main():
 
     with open(args.regions, encoding="utf-8") as f:
         regions = json.load(f)["regions"]
+    validate_regions(regions)
     names = [r["name"] for r in regions]
-    if len(set(names)) != len(names):
-        sys.exit("regions.json の name が重複している")
-    for r in regions:
-        bad = set(r.get("dists") or []) - set(DISTS)
-        if bad:
-            sys.exit(f"{r['name']}: dists に知らない版 {', '.join(sorted(bad))}")
-        if r.get("host", "pages") not in HOSTS:
-            sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
     unknown = set(args.only or []) | set(args.pack)
     unknown -= set(names)
     if unknown:
