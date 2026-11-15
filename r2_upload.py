@@ -15,7 +15,8 @@ aws CLI (S3 互換 API) を使う。環境変数:
   R2_ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   (R2 の API トークン)
   R2_BUCKET                                                 バケット名
 
-  python r2_upload.py r2site --force "osaka nagoya"
+  python r2_upload.py r2site --force "osaka nagoya"      # 置いてあるすべての版
+  python r2_upload.py r2site --force "v3/osaka"         # その版だけ
 """
 import argparse
 import gzip
@@ -71,7 +72,7 @@ def put_tree(local, bucket, prefix, exts):
 def main():
     ap = argparse.ArgumentParser(description="build_site.py --r2 で分けた地域を R2 に上げる")
     ap.add_argument("dir")
-    ap.add_argument("--force", default="", help="R2 にあっても上げ直す地域 (空白かカンマ区切り)")
+    ap.add_argument("--force", default="", help="R2 にあっても上げ直す地域 (空白かカンマ区切り。v3/osaka のように版も付けると、その版だけ)")
     args = ap.parse_args()
     for k in ("R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "R2_BUCKET"):
         if not os.environ.get(k):
@@ -91,7 +92,7 @@ def main():
                 if not os.path.isdir(rdir):
                     continue
                 prefix = f"{dist}/{name}/"
-                if name not in force and exists(bucket, prefix + "manifest.json"):
+                if name not in force and f"{dist}/{name}" not in force and exists(bucket, prefix + "manifest.json"):
                     print(f"{prefix}: R2 にある (上げない)")
                     continue
                 print(f"{prefix}: 上げる")

@@ -43,7 +43,10 @@ v2 までのワールドのシェーダーは POI を地名と区別できない
 - 焼いた地域は Release (タグ = 版。[v1](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v1)、[v2](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v2)、[v3](https://github.com/kimkim0106/vrchat-osm-tiles/releases/tag/v3)) に `<地域>.tar.gz` として保存します。
 - v2 は v1 を `vmt_pack.py` でまとめて作ります。v1 を焼き直すと v2 も作り直します。
 - v3 は v1 とは別に、POI 入りで焼いたタイル (配らない) をまとめて作ります。v1 / v2 は POI を入れずに焼きます (`vmt_bake.py --no-poi`)。
-- Actions は毎回すべての版の Release を戻し、まだ無い地域だけを焼いて足します。スクリプトを直して push しても、焼いた地域は変わりません。
+- Actions は Release の一覧を見て、まだ無い地域だけを焼いて足します (`plan_build.py`)。スクリプトを直して push しても、焼いた地域は変わりません。
+- Actions の job は plan (焼く地域を決め、Release が無ければ作る) → bake (1 地域 = 1 job の matrix。Geofabrik に断られないよう同時に 3 つまで)
+  → publish (Release から配る版を戻して索引を作り、R2 と Pages に出す) → deploy → check。
+  bake の地域が 1 つ失敗しても、ほかの地域は焼いて Release に保存します。そのときは publish に進まないので、「Re-run failed jobs」で続けます。
 - `regions.json` から消しても、Release に残っている地域は配り続けます (古いワールドのため)。止めるには Release のファイルを消します。
 - OSM のデータを新しくするときは、Actions を手動実行して `rebuild` に地域名 (または `all`) を入れます。
   その地域を使うワールドは、新しい manifest で床マップやボードを作り直して上げ直してください。
@@ -79,23 +82,27 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 - `binZooms` は v2 で生データも置くズーム (床マップの全体に使うズーム)。東京の z13 で約 80 MB。
 - `dists` を書くと、その版だけを Pages に載せる (例 `["v2"]`)。v2 は v1 から作るので v1 も焼いて Release に保存するが、
   サイトには載せない。v1 を読むのは卓上ボード (VmtMap) だけなので、東京より後の地域は v2 だけにしてサイトの容量を空けている。
-- v3 は `dists` に `v3` がある地域 (`dists` が無ければすべて) だけ焼く。東京は v3 を足すと 1 GB を超えるので、`["v2", "v3"]` にして
-  v1 を Pages から外した (Release には残っている。v1 を読む卓上ボード VmtMap は、ワールドでは非アクティブで使っていない)。
+- v3 は `dists` か `releaseOnly` に `v3` がある地域 (`dists` が無ければすべて) だけ焼く。
+- `releaseOnly` に書いた版は、焼いて Release に保存するが配らない (例 `"dists": ["v2"], "releaseOnly": ["v3"]`)。
+  配る前に確かめたいときに使い、確かめたら `dists` に移す (Release から戻して配る。焼き直さない)。
+  R2 の地域の v3 は、R2 の動作を確かめるまでこれにしている。
+- Pages の容量のため、東京は v3 だけを配る (v1 / v2 は Release だけ。ワールドの東京の床は v3 を読み、v1 を読む卓上ボード VmtMap は使っていない)。
+  神戸・徳島は v2 と v3 を配る (ワールドの床を v3 に作り直したら、v2 は外してよい)。
 
 今の地域 (床マップに合わせて、どれも z13 で 10 × 11 枚 = 床 20 m × 22 m):
 
 | name | 地域 | 中心 | 配る版 |
 |---|---|---|---|
-| tokyo | 東京 | (東京駅は中心から東へ 0.5 枚、南へ 0.3 枚) | v2, v3 (v1 は Release だけ) |
-| kobe | 神戸 | JR 三ノ宮駅 (z13 のタイルの境目にそろえたので、駅は中心から東へ 0.45 枚、北へ 0.2 枚) | v2 |
-| tokushima | 徳島 | 徳島駅 (駅は中心から西へ 0.2 枚、北へ 0.1 枚) | v2 |
-| osaka | 大阪 | 大阪駅 (東へ 0.3 枚、北へ 0.4 枚) | v2 (R2) |
-| nagoya | 名古屋 | 名古屋駅 (西へ 0.2 枚、北へ 0.4 枚)。三重県 (Geofabrik では kansai) にかかるので `area` は japan | v2 (R2) |
-| fukuoka | 福岡 | 博多駅 (西へ 0.2 枚、南へ 0.2 枚) | v2 (R2) |
-| sapporo | 札幌 | 札幌駅 (西へ 0.5 枚、北へ 0.5 枚) | v2 (R2) |
-| sendai | 仙台 | 仙台駅 (西へ 0.1 枚、北へ 0.1 枚) | v2 (R2) |
-| hiroshima | 広島 | 広島駅 (西へ 0.45 枚) | v2 (R2) |
-| niigata | 新潟 | 新潟駅 (東へ 0.4 枚、北へ 0.1 枚) | v2 (R2) |
+| tokyo | 東京 | (東京駅は中心から東へ 0.5 枚、南へ 0.3 枚) | v3 (v1 / v2 は Release だけ) |
+| kobe | 神戸 | JR 三ノ宮駅 (z13 のタイルの境目にそろえたので、駅は中心から東へ 0.45 枚、北へ 0.2 枚) | v2, v3 |
+| tokushima | 徳島 | 徳島駅 (駅は中心から西へ 0.2 枚、北へ 0.1 枚) | v2, v3 |
+| osaka | 大阪 | 大阪駅 (東へ 0.3 枚、北へ 0.4 枚) | v2 (R2)、v3 は Release だけ |
+| nagoya | 名古屋 | 名古屋駅 (西へ 0.2 枚、北へ 0.4 枚)。三重県 (Geofabrik では kansai) にかかるので `area` は japan | v2 (R2)、v3 は Release だけ |
+| fukuoka | 福岡 | 博多駅 (西へ 0.2 枚、南へ 0.2 枚) | v2 (R2)、v3 は Release だけ |
+| sapporo | 札幌 | 札幌駅 (西へ 0.5 枚、北へ 0.5 枚) | v2 (R2)、v3 は Release だけ |
+| sendai | 仙台 | 仙台駅 (西へ 0.1 枚、北へ 0.1 枚) | v2 (R2)、v3 は Release だけ |
+| hiroshima | 広島 | 広島駅 (西へ 0.45 枚) | v2 (R2)、v3 は Release だけ |
+| niigata | 新潟 | 新潟駅 (東へ 0.4 枚、北へ 0.1 枚) | v2 (R2)、v3 は Release だけ |
 
 範囲は駅を含む z13 のタイルを中心に 10 × 11 枚とし、四辺を 0.25 枚ずつ内側に寄せた経緯度を `bbox` に書いています。
 
@@ -111,7 +118,7 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 | Variable | `R2_BUCKET` | バケット名 |
 | Variable | `R2_PUBLIC_URL` | バケットの公開 URL (`https://pub-….r2.dev/` か独自ドメイン)。配信後の確認に使う |
 
-R2 に上げ直すのは、その実行で焼いた (まとめた) 地域と、R2 に `manifest.json` が無い地域だけです。
+R2 に上げ直すのは、その実行で焼いた (まとめた) 版と地域と、R2 に `manifest.json` が無い地域だけです。
 
 ## 手元で焼く
 
