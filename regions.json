@@ -82,9 +82,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
@@ -109,9 +107,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
@@ -136,9 +132,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
@@ -163,9 +157,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
@@ -190,9 +182,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
@@ -217,9 +207,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
@@ -244,9 +232,7 @@
     13
    ],
    "dists": [
-    "v2"
-   ],
-   "releaseOnly": [
+    "v2",
     "v3"
    ],
    "binGroups": {
