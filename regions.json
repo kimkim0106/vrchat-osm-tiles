@@ -1369,6 +1369,326 @@
     ]
    },
    "host": "r2"
+  },
+  {
+   "name": "wide-japan",
+   "title": "日本全体",
+   "wide": true,
+   "area": "japan",
+   "bbox": "122.9316,20.4217,153.9877,45.5583",
+   "zooms": "7-8",
+   "tiles": [
+    12,
+    12
+   ],
+   "tileSize": 1.666,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     7,
+     8
+    ]
+   }
+  },
+  {
+   "name": "wide-hokkaido",
+   "title": "北海道地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "139.3329,41.3506,148.8955,45.5583",
+   "zooms": "9-10",
+   "tiles": [
+    14,
+    9
+   ],
+   "tileSize": 1.428,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     9,
+     10
+    ]
+   }
+  },
+  {
+   "name": "wide-tohoku",
+   "title": "東北地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "139.1637,36.7903,142.0735,41.5572",
+   "zooms": "9-10",
+   "tiles": [
+    6,
+    10
+   ],
+   "tileSize": 2.2,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     9,
+     10
+    ]
+   }
+  },
+  {
+   "name": "wide-kanto",
+   "title": "関東地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "138.3960,32.4418,140.8827,37.1561",
+   "zooms": "9-10",
+   "tiles": [
+    5,
+    9
+   ],
+   "tileSize": 2.444,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     9,
+     10
+    ]
+   }
+  },
+  {
+   "name": "wide-chubu",
+   "title": "中部地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "135.4483,34.5711,139.9010,38.5546",
+   "zooms": "9-10",
+   "tiles": [
+    7,
+    8
+   ],
+   "tileSize": 2.75,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     9,
+     10
+    ]
+   }
+  },
+  {
+   "name": "wide-kinki",
+   "title": "近畿地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "134.2517,33.4315,136.9911,35.7803",
+   "zooms": "10-11",
+   "tiles": [
+    9,
+    9
+   ],
+   "tileSize": 2.222,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     10,
+     11
+    ]
+   }
+  },
+  {
+   "name": "wide-chugoku",
+   "title": "中国地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "130.7737,33.7116,134.5165,37.2488",
+   "zooms": "10-11",
+   "tiles": [
+    12,
+    14
+   ],
+   "tileSize": 1.571,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     10,
+     11
+    ]
+   }
+  },
+  {
+   "name": "wide-shikoku",
+   "title": "四国地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "132.0113,32.7015,134.8234,34.5659",
+   "zooms": "10-11",
+   "tiles": [
+    9,
+    7
+   ],
+   "tileSize": 2.222,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     10,
+     11
+    ]
+   }
+  },
+  {
+   "name": "wide-kyushu",
+   "title": "九州地方",
+   "wide": true,
+   "area": "japan",
+   "bbox": "128.1034,30.2253,132.1785,34.7297",
+   "zooms": "9-10",
+   "tiles": [
+    6,
+    8
+   ],
+   "tileSize": 2.75,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     9,
+     10
+    ]
+   }
+  },
+  {
+   "name": "wide-okinawa",
+   "title": "沖縄・奄美",
+   "wide": true,
+   "area": "japan",
+   "bbox": "122.9316,24.0446,131.3332,30.0574",
+   "zooms": "9-10",
+   "tiles": [
+    13,
+    10
+   ],
+   "tileSize": 1.538,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     9,
+     10
+    ]
+   }
   }
  ]
 }

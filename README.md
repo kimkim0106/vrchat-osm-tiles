@@ -169,6 +169,44 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 | kagoshima | 鹿児島県 | 鹿児島 | 県庁 (西へ 0.1 枚、北へ 0.0 枚) | kyushu | R2 |
 | naha | 沖縄県 | 那覇 | 県庁 (東へ 0.5 枚、南へ 0.1 枚) | kyushu | R2 |
 
+### 広域の地図 (日本全体と地方ごと)
+
+`"wide": true` の地域は、日本全体と地方ごとの床マップです (`wide_regions.py` が `regions.json` に書く)。設計は
+vrchat-osm の Issue #18。今は `"releaseOnly": ["v3"]` で焼いて Release に保存するだけで、大きさと見た目を確かめてから `dists` に移します。
+
+```bash
+python wide_regions.py <N03-20260101.geojson>        # 範囲とズームを決めて regions.json に書く
+python wide_labels.py <N03-20260101.geojson> <N03-20260101_prefecture.geojson> <N02-25_Station.geojson>   # labels/wide_japan.json
+```
+
+- 元データは都市と同じ Geofabrik の日本 (`area` は `japan`)。Geofabrik の日本の範囲には北方領土と竹島が入っていない
+  (陸の形は全世界の海岸線のデータから出る。道路などは無い)。周りの国も陸の形だけになる。
+- 範囲は国土数値情報の行政区域 (N03) の市区町村の面から決める。地方は設定タブレットの 8 地方で、九州・沖縄だけ 2 つに分ける。
+  関東に小笠原村 (南鳥島・沖ノ鳥島) は入れない (日本全体にだけ出る)。奄美群島とトカラ列島は沖縄の地図に入れる (九州に入れると九州が細長くなる)。
+- ズームは床 (20 m × 22 m) の 1 枚が 1.4 m 以上になるいちばん大きいもの。日本全体は z7。焼くのは base と base + 1 (足元の詳細)。
+- 地名は OpenStreetMap ではなく `labels/wide_japan.json` (国土数値情報から作った点) を使う (`vmt_bake.py --wide-labels`)。
+  OpenMapTiles の低いズームには駅 (POI は z11 から) も町村もそろっていないため。都道府県・市区町村 (北方領土の 6 村も N03 にある)・
+  政令市の区・駅 (N02。同じ駅名で 500 m 以内は事業者をまたいで 1 つ)・手で足す島 (北方 4 島・竹島・尖閣諸島・南鳥島・沖ノ鳥島)。
+  OpenStreetMap からは島・海・湖の名前だけ (日本語の名前があり、元の名前がハングルやキリル文字でないもの)。
+  重なったときの優先順は 都道府県 > 県庁所在地・政令市 > 市・特別区・手で足す島 > 主な駅 (新幹線か 3 路線以上) > 町村 > 政令市の区 >
+  そのほかの駅 (路線の多い順) > 島・海・湖 (`vmt_bake.py` の `WIDE_KINDS`)。
+- 境界線は都道府県境の陸上の線だけ (`boundaryLevels`。国境・海の上の線・係争中の線は描かない)。
+- 1 タイルのラベル頂点の上限は 49140 (`labelVerts`。都市の 3 倍)。Unity の地名の入れ物もこの大きさまで用意する。
+- 地名の出典 (manifest の `labelAttribution`。CC BY 4.0): 「国土数値情報（行政区域データ）」「国土数値情報（鉄道データ）」（国土交通省）。
+
+| name | title | ズーム | 枚数 | 1 枚 |
+|---|---|---|---|---|
+| wide-japan | 日本全体 | 7-8 | 12 × 12 | 1.67 m |
+| wide-hokkaido | 北海道地方 | 9-10 | 14 × 9 | 1.43 m |
+| wide-tohoku | 東北地方 | 9-10 | 6 × 10 | 2.20 m |
+| wide-kanto | 関東地方 | 9-10 | 5 × 9 | 2.44 m |
+| wide-chubu | 中部地方 | 9-10 | 7 × 8 | 2.75 m |
+| wide-kinki | 近畿地方 | 10-11 | 9 × 9 | 2.22 m |
+| wide-chugoku | 中国地方 | 10-11 | 12 × 14 | 1.57 m |
+| wide-shikoku | 四国地方 | 10-11 | 9 × 7 | 2.22 m |
+| wide-kyushu | 九州地方 | 9-10 | 6 × 8 | 2.75 m |
+| wide-okinawa | 沖縄・奄美 | 9-10 | 13 × 10 | 1.54 m |
+
 ### R2 の設定
 
 `host` が `r2` の地域を上げるには、このリポジトリの Settings > Secrets and variables > Actions に次を登録します。
@@ -218,4 +256,7 @@ v2 を出した後も v1 は焼き直さずにそのまま配り続けられま�
 - コード: MIT (`LICENSE`)
 - 地図データ: © OpenStreetMap contributors、[ODbL](https://www.openstreetmap.org/copyright)。ワールド内にも帰属表示を出してください。
   元データは [Geofabrik](https://download.geofabrik.de/) の抽出を [Planetiler](https://github.com/onthegomap/planetiler) で OpenMapTiles スキーマにしたもの。
+- 広域の地図の地名 (`labels/wide_japan.json` とそれを焼いたタイル): 「[国土数値情報（行政区域データ）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html)」
+  「[国土数値情報（鉄道データ）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html)」（国土交通省）を加工して作成 (CC BY 4.0)。
+  ワールド内の帰属表示にも足してください (manifest の `labelAttribution`)。
 - タイルに含まれる文字の形: [Noto Sans CJK](https://github.com/notofonts/noto-cjk) (SIL Open Font License 1.1)

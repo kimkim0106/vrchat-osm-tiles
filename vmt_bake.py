@@ -81,7 +81,7 @@ LABEL_SPREAD = 4.0       # 距離画像が表す距離の幅 (px)。字の大き
 # 1 段に並べる字数。u (マスの右端を含む) は 2048 未満でなければならない (2048 以上は縁取りフラグと区別できない) ので、
 # マスが 2048 をちょうど割り切るときは 1 つ減らす (32 px なら 63 字)
 LABEL_COLS = (TEX_W - 1) // LABEL_CELL
-LABEL_VERTS_PER_POOL = 16380  # ラベル用プールメッシュの頂点数 (3 の倍数)
+LABEL_VERTS_PER_POOL = 16380  # ラベル用プールメッシュの頂点数の既定 (Unity の地名の入れ物の段階が 15 なので 90 の倍数。--label-verts で変える)
 LABEL_STRIDE = 4         # ラベル頂点 1 つのテクセル数
 LABEL_SCALE_MIN = -24    # 重なりを調べる倍率は 2^(k/8)、k = LABEL_SCALE_MIN..LABEL_SCALE_STEPS (1/8 倍から 8 倍)
 LABEL_SCALE_STEPS = 24   # 1 倍未満は床を拡大したとき (文字の倍率を zoom で割る) に使い、拡大するほど多く出る
@@ -147,7 +147,34 @@ def label_categories():
         [{"id": k, "key": v["key"], "title": v["title"]} for k, v in sorted(POI_CATEGORIES.items())]
 
 
-LABEL_CONFIG = {"font": None, "lang": None, "enabled": True, "spacing": 1.0, "poi": True}
+LABEL_CONFIG = {"font": None, "lang": None, "enabled": True, "spacing": 1.0, "poi": True,
+                "verts": LABEL_VERTS_PER_POOL, "wide": None}
+
+# 広域の地図 (--wide-labels) の地名。地名の点は wide_labels.py が国土数値情報から作ったもの (市区町村・駅・手で足す島) で、
+# OpenStreetMap からは島・海・湖の名前だけを取る (日本語の名前があり、元の名前がハングルやキリル文字でないもの)。
+# kind -> (種類 (0 地名 / 1 駅), 512px タイルでの文字サイズ px, 優先度 (小さいほど先), 余白 px)
+WIDE_KINDS = {
+    "pref": (0, 20, 0, 6),
+    "designated": (0, 16, 1, 4),
+    "capital": (0, 16, 1, 4),
+    "city": (0, 14, 2, 4),
+    "island": (0, 13, 2, 4),
+    "station_major": (1, 12, 3, 4),
+    "town": (0, 12, 4, 4),
+    "ward": (0, 11, 5, 4),
+    "station": (1, 11, 6, 3),
+    "osm": (0, 12, 7, 4),
+}
+WIDE_OSM_PLACE = {"island"}                                  # place レイヤーの class
+WIDE_OSM_WATER = {"ocean", "sea", "bay", "strait", "lake"}   # water_name レイヤーの class
+
+
+def _foreign_script(name):
+    """ハングルかキリル文字を含むか (広域の地図で、日本の外の地名を載せないため)。"""
+    return any("\uac00" <= ch <= "\ud7af" or "\u1100" <= ch <= "\u11ff" or "\u3130" <= ch <= "\u318f"
+               or "\u0400" <= ch <= "\u04ff" for ch in name)
+
+
 FONT_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc",
@@ -377,6 +404,9 @@ def _rule_matches(rule, props, gtype, zoom):
     if "max_admin_level" in rule:
         lvl = props.get("admin_level")
         if lvl is None or lvl > rule["max_admin_level"]:
+            return False
+    if "admin_levels" in rule:  # --boundary-levels: この段の陸上の線だけ (海の上の線と係争中の線は描かない)
+        if props.get("admin_level") not in rule["admin_levels"] or props.get("maritime") or props.get("disputed"):
             return False
     return True
 
@@ -682,6 +712,64 @@ def label_candidates(db, z, tiles):
     return cands
 
 
+def _tile_units(lon, lat, z):
+    """経緯度をズーム z 全体でのタイル単位にする。"""
+    n = (1 << z) * EXTENT
+    r = math.radians(lat)
+    return (lon + 180.0) / 360.0 * n, (1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * n
+
+
+def wide_candidates(db, z, tiles):
+    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖)。優先度順に並べて返す。"""
+    inside = set(tiles)
+    cands = []
+    names = set()
+    for e in LABEL_CONFIG["wide"]:
+        x, y = _tile_units(e["lon"], e["lat"], z)
+        if (int(x // EXTENT), int(y // EXTENT)) not in inside:
+            continue
+        cat, size, pri, margin = WIDE_KINDS[e["kind"]]
+        name = clean_label(e["name"])
+        names.add(name)
+        cands.append({"pri": pri, "rank": e.get("order", 0), "name": name, "cat": cat, "x": x, "y": y,
+                      "size": size, "margin": margin * LABEL_CONFIG["spacing"]})
+    lang = LABEL_CONFIG["lang"] or "ja"
+    cat, size, pri, margin = WIDE_KINDS["osm"]
+    seen = set()
+    for tx, ty in tiles:
+        data = read_tile(db, z, tx, ty)
+        if not data:
+            continue
+        decoded = decode_mvt(data, only=("place", "water_name"))
+        for lname, classes in (("place", WIDE_OSM_PLACE), ("water_name", WIDE_OSM_WATER)):
+            layer = decoded.get(lname)
+            if not layer:
+                continue
+            scale = EXTENT / float(layer["extent"])
+            for feat in layer["features"]:
+                props = feat["props"]
+                if feat["type"] not in (1, 2) or not feat["geom"] or props.get("class") not in classes:
+                    continue
+                local = props.get("name")
+                name = props.get("name:" + lang)
+                if not isinstance(name, str) or (isinstance(local, str) and _foreign_script(local)):
+                    continue
+                name = clean_label(name)
+                if not name or name in names or name in seen:
+                    continue
+                # 点ならその点、線 (湖の中心線) なら最初の線の真ん中の点
+                line = feat["geom"][0]
+                x, y = line[len(line) // 2][0] * scale, line[len(line) // 2][1] * scale
+                if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                    continue
+                seen.add(name)
+                cands.append({"pri": pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
+                              "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                              "size": size, "margin": margin * LABEL_CONFIG["spacing"]})
+    cands.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
+    return cands
+
+
 def _cluster(points, limit):
     """距離 limit 以内でつながる点をまとめる (単連結)。戻り値は添字のリストのリスト。"""
     n = len(points)
@@ -826,7 +914,10 @@ def plan_labels(db, levels, lat):
     for lv in levels:
         z = lv["z"]
         tiles = [(lv["minX"] + i, lv["minY"] + j) for j in range(lv["h"]) for i in range(lv["w"])]
-        cands = merge_labels(label_candidates(db, z, tiles), _unit_m(z, lat))
+        if LABEL_CONFIG["wide"] is not None:  # 点はもうまとめてある (wide_labels.py)
+            cands = wide_candidates(db, z, tiles)
+        else:
+            cands = merge_labels(label_candidates(db, z, tiles), _unit_m(z, lat))
         placed = place_labels(cands)
         inside = set(tiles)
         count = 0
@@ -861,7 +952,7 @@ def build_labels(planned, z, tx, ty, max_atlas_rows=MAX_H):
     corners = [(0, 0), (1, 0), (0, 1), (1, 0), (1, 1), (0, 1)]
     for lab in planned:
         chars = [ch for ch in lab["name"] if not ch.isspace()]
-        if len(halo_quads) + len(text_quads) + 12 * len(chars) > LABEL_VERTS_PER_POOL:
+        if len(halo_quads) + len(text_quads) + 12 * len(chars) > LABEL_CONFIG["verts"]:
             continue
         if len(glyphs) + len(set(ch for ch in chars if ch not in glyphs)) > max_glyphs:
             continue
@@ -1061,7 +1152,7 @@ def bake_tile(db, style, z, x, y, planned=None):
     records, stats = build_records(layers, style, z)
     # 文字アトラスに使える行 = 高さの上限 - ヘッダ類 - 頂点レコード - ラベル頂点 (プールいっぱいのとき) - 末尾の行
     data_rows = (2 * len(records) + TEX_W - 1) // TEX_W
-    label_rows = (LABEL_STRIDE * LABEL_VERTS_PER_POOL + TEX_W - 1) // TEX_W
+    label_rows = (LABEL_STRIDE * LABEL_CONFIG["verts"] + TEX_W - 1) // TEX_W
     labels, atlas, count = build_labels(planned, z, x, y, MAX_H - DATA_ROW - data_rows - label_rows - 1)
     stats["_labels"] = count
     stats["_labelVertices"] = len(labels)
@@ -1131,7 +1222,15 @@ def main(argv=None):
                     help="ラベルの周囲に空ける余白の倍率。大きくすると疎に、小さくすると密になる (既定 1.0)")
     ap.add_argument("--no-labels", action="store_true", help="ラベルを焼かない")
     ap.add_argument("--no-poi", action="store_true", help="POI (駅・観光地・店など) をラベルに入れない (地名だけ)")
+    ap.add_argument("--wide-labels", default=None, metavar="JSON",
+                    help="広域の地図: 地名を wide_labels.py の点 (市区町村・駅・島) と OpenStreetMap の島・海・湖の名前にする")
+    ap.add_argument("--boundary-levels", default=None, metavar="N[,N]",
+                    help="境界線はこの admin_level の陸上の線だけ描く (海の上の線と係争中の線は描かない)。例: 4")
+    ap.add_argument("--label-verts", type=int, default=LABEL_VERTS_PER_POOL,
+                    help=f"1 タイルのラベル頂点の上限 (既定 {LABEL_VERTS_PER_POOL}。90 の倍数)。Unity の地名の入れ物の最大と合わせる")
     args = ap.parse_args(argv)
+    if args.label_verts <= 0 or args.label_verts % 90:
+        ap.error("--label-verts は 90 の倍数 (Unity の地名の入れ物は 15 段階で、1 段は 6 の倍数)")
 
     if args.bbox:
         w, s_, e, n_ = [float(v) for v in args.bbox.split(",")]
@@ -1145,8 +1244,26 @@ def main(argv=None):
     else:
         z0 = z1 = int(args.zooms)
     style = load_style(args.style)
+    if args.boundary_levels:
+        levels_wanted = [int(v) for v in args.boundary_levels.split(",")]
+        for rule in style:
+            if rule.get("layer") == "boundary":
+                rule.pop("max_admin_level", None)
+                rule["admin_levels"] = levels_wanted
+    wide = None
+    wide_attribution = []
+    if args.wide_labels:
+        with open(args.wide_labels, encoding="utf-8") as f:
+            w_json = json.load(f)
+        if w_json.get("format") != "wide-labels":
+            ap.error(f"{args.wide_labels} は wide_labels.py の出力ではない")
+        wide = w_json["labels"]
+        wide_attribution = w_json.get("attribution", [])
+        unknown = {e["kind"] for e in wide} - set(WIDE_KINDS)
+        if unknown:
+            ap.error(f"{args.wide_labels} に知らない kind: {', '.join(sorted(unknown))}")
     LABEL_CONFIG.update(font=args.font, lang=args.lang, enabled=not args.no_labels, spacing=args.label_spacing,
-                        poi=not args.no_poi)
+                        poi=not args.no_poi and wide is None, verts=args.label_verts, wide=wide)
     db = sqlite3.connect(f"file:{args.mbtiles}?mode=ro", uri=True)
     if not args.dry_run:
         os.makedirs(args.out, exist_ok=True)
@@ -1171,7 +1288,7 @@ def main(argv=None):
     # ラベルはズームごとに全タイルまとめて配置する (タイルをまたぐ重なりと重複を除くため)
     plan = plan_labels(db, levels, lat)
     LABEL_CONFIG["font"] = LABEL_CONFIG["font"] or next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
-    ctx = (args.mbtiles, args.out, style, dict(LABEL_CONFIG), args.no_bin, args.dry_run, plan)
+    ctx = (args.mbtiles, args.out, style, dict(LABEL_CONFIG, wide=None), args.no_bin, args.dry_run, plan)
     todo = jobs
     part_dir = os.path.join(args.out, "_parts")
     if args.part:
@@ -1224,12 +1341,20 @@ def main(argv=None):
         "format": "VMT-DT", "version": FORMAT_VERSION, "width": TEX_W,
         "vertsPerChunk": VERTS_PER_CHUNK, "center": [lon, lat],
         "labelConfig": {"font": LABEL_CONFIG["font"], "lang": LABEL_CONFIG["lang"], "enabled": LABEL_CONFIG["enabled"],
-                        "spacing": LABEL_CONFIG["spacing"], "poi": LABEL_CONFIG["poi"]},
-        "labelCategories": label_categories() if LABEL_CONFIG["poi"] else label_categories()[:1],
+                        "spacing": LABEL_CONFIG["spacing"], "poi": LABEL_CONFIG["poi"],
+                        "wide": os.path.basename(args.wide_labels) if args.wide_labels else None,
+                        "boundaryLevels": args.boundary_levels},
+        # 広域の地図は地名 (0) と駅 (1)。種類の番号は POI と同じ (タブレットの「駅」のチェックで出し入れできる)
+        "labelCategories": label_categories()[:2] if wide is not None
+        else label_categories() if LABEL_CONFIG["poi"] else label_categories()[:1],
+        # 1 タイルのラベル頂点の上限。Unity は地名の入れ物をこの大きさまで用意する (タイルの labelVertices で選ぶ)
+        "labelVertsPerPool": LABEL_CONFIG["verts"],
         "levels": levels, "tiles": tiles,
         "styles": [r["name"] for r in style],
         "attribution": source_attribution or "© OpenStreetMap contributors",
     }
+    if wide_attribution:
+        manifest["labelAttribution"] = wide_attribution
     with open(os.path.join(args.out, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
     print(f"{len(tiles)} tiles -> {args.out}")
