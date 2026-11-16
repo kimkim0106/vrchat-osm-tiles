@@ -50,6 +50,8 @@ import os
 import sqlite3
 import re
 import struct
+import sys
+import unicodedata
 
 import numpy as np
 
@@ -554,17 +556,34 @@ def line_records(lines, scale, lo, hi):
 _font_cache = {}
 
 
-def _font():
+def _font(size=None, basic=False):
+    """ラベルのフォント。basic なら Pillow の BASIC レイアウト (raqm を使わない。1 文字ずつ描くので結果はほぼ同じ)。"""
     path = LABEL_CONFIG["font"]
     if path is None:
         path = next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
         if path is None:
             raise RuntimeError("フォントが見つかりません。--font で指定してください")
         LABEL_CONFIG["font"] = path
-    if path not in _font_cache:
+    size = size or LABEL_FONT_PX
+    key = (path, size, basic)
+    if key not in _font_cache:
         from PIL import ImageFont
-        _font_cache[path] = ImageFont.truetype(path, LABEL_FONT_PX)
-    return _font_cache[path]
+        engine = ImageFont.Layout.BASIC if basic else None
+        _font_cache[key] = ImageFont.truetype(path, size, layout_engine=engine)
+    return _font_cache[key]
+
+
+# 地名に入っていても字にならないもの (1 文字ずつ描くので、出すと崩れた字やトーフになる。raqm が 1 文字だけでは
+# 組めずに落ちることもある): 制御文字・書式文字 (ゼロ幅結合子など)・サロゲート・私用・未割り当て・行区切り、
+# 結合文字 (NFC で合成できなかったもの)、異体字セレクタ。
+_LABEL_DROP_CATS = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp", "Mn", "Me"}
+
+
+def clean_label(name):
+    """ラベルの名前を NFC にし、字にならない文字を除く。空白の並びは 1 つにする。"""
+    name = unicodedata.normalize("NFC", name)
+    name = "".join(ch for ch in name if unicodedata.category(ch) not in _LABEL_DROP_CATS)
+    return " ".join(name.split())
 
 
 _glyph_cache = {}
@@ -575,18 +594,28 @@ def glyph_sdf(ch):
     key = (LABEL_CONFIG["font"], ch)
     if key in _glyph_cache:
         return _glyph_cache[key]
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
     from scipy import ndimage
-    font = _font()
     ss = 4  # 4 倍で描いて距離を測り、縮小する
-    big = ImageFont.truetype(LABEL_CONFIG["font"], LABEL_FONT_PX * ss)
-    adv = font.getlength(ch)
-    ascent, descent = big.getmetrics()
     size = LABEL_CELL * ss
-    img = Image.new("L", (size, size), 0)
-    x0 = (size - big.getlength(ch)) / 2.0
-    y0 = (size - (ascent + descent)) / 2.0
-    ImageDraw.Draw(img).text((x0, y0), ch, font=big, fill=255)
+    img = adv = None
+    for basic in (False, True):
+        font, big = _font(basic=basic), _font(LABEL_FONT_PX * ss, basic=basic)
+        try:
+            adv = font.getlength(ch)
+            ascent, descent = big.getmetrics()
+            img = Image.new("L", (size, size), 0)
+            x0 = (size - big.getlength(ch)) / 2.0
+            y0 = (size - (ascent + descent)) / 2.0
+            ImageDraw.Draw(img).text((x0, y0), ch, font=big, fill=255)
+            break
+        except (RuntimeError, OSError, ValueError, UnicodeError) as e:
+            # raqm が 1 文字だけでは組めないことがある (2026-11-16 に横浜の z14 で raqm_layout() failed)
+            print(f"warning: U+{ord(ch):04X} ({unicodedata.name(ch, '?')}) を"
+                  f"{'BASIC' if basic else ' raqm '}で描けない: {e}", file=sys.stderr, flush=True)
+            img = adv = None
+    if img is None:  # どちらでも描けなければ空白にする
+        img, adv = Image.new("L", (size, size), 0), LABEL_FONT_PX * 0.5
     inside = np.asarray(img) >= 128
     d_in = ndimage.distance_transform_edt(inside)
     d_out = ndimage.distance_transform_edt(~inside)
@@ -625,6 +654,7 @@ def label_candidates(db, z, tiles):
                     continue
                 props = feat["props"]
                 name = (props.get("name:" + lang) if lang else None) or props.get("name")
+                name = clean_label(name) if isinstance(name, str) else None
                 if not name:
                     continue
                 if lname == "place":
