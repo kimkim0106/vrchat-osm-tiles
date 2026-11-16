@@ -147,7 +147,8 @@ jobs:
           printf '%s  planetiler.jar\n%s  NotoSansCJK-Regular.ttc\n' "$PLANETILER_SHA256" "$NOTO_SHA256" | sha256sum -c -
 
       # OSM の元データ (Geofabrik の地域ごとの .osm.pbf) を地域と日付ごとにキャッシュする。同じ地域の都市が多いので、
-      # Geofabrik に取りに行く回数を減らす (続けて取ると接続を拒まれる)。キャッシュに無ければ build_site.py が取る
+      # Geofabrik に取りに行く回数を減らす (続けて取ると接続を拒まれる)。今日のものが無ければ build_site.py が取り、
+      # どこからも取れなければ restore-keys で戻した前の日までのものを使う (build_site.py の fetch_osm)
       - if: matrix.build || matrix.poi
         name: 元データの地域
         id: osm
@@ -161,8 +162,9 @@ jobs:
         name: 元データのキャッシュ
         uses: actions/cache@v6
         with:
-          path: build/sources/${{ steps.osm.outputs.area }}.osm.pbf
+          path: build/osm-cache/${{ steps.osm.outputs.area }}
           key: osm-${{ steps.osm.outputs.area }}-${{ steps.osm.outputs.date }}
+          restore-keys: osm-${{ steps.osm.outputs.area }}-
 
       - name: 焼いて Release に保存する
         env:

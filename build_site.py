@@ -96,30 +96,52 @@ JAPAN_AREAS = {"hokkaido", "tohoku", "kanto", "chubu", "kansai", "chugoku", "shi
 
 
 def osm_source(area):
-    """area の OSM の元データの URL の候補。日本の地域でなければ None (planetiler の --area に任せる)。"""
+    """
+    area の OSM の元データの URL の候補 (上から順に試す)。日本の地域でなければ None (planetiler の --area に任せる)。
+    地域のファイル (Geofabrik → openstreetmap.fr) の後に、全国のファイルも候補にする (planetiler が --bounds で切るので、
+    焼いた結果は同じ。大きい (約 2.6 GB) ので最後)。
+    """
     if area == "japan":
-        path = "japan"
+        paths = ["japan"]
     elif area in JAPAN_AREAS:
-        path = f"japan/{area}"
+        paths = [f"japan/{area}", "japan"]
     else:
         return None
-    return [(name, url.format(path=path)) for name, url in OSM_MIRRORS]
+    return [(f"{name} の {path}", url.format(path=path)) for path in paths for name, url in OSM_MIRRORS]
+
+
+def osm_cache_dir(work, area):
+    """元データを置く場所。Actions は地域と日付ごとに actions/cache で残す (pages.yml)。"""
+    return os.path.join(work, "osm-cache", area)
 
 
 def fetch_osm(area, work):
     """
-    OSM の元データを work/sources/<area>.osm.pbf に置き、取った URL を返す (planetiler の --osm_url に渡す)。
-    planetiler はファイルがあれば取り直さない (refresh_osm=false) ので、キャッシュ (Actions の actions/cache) から戻した
-    ファイルもそのまま使う。そのときの URL は候補の先頭 (planetiler は取りに行かない)。
+    OSM の元データを work/osm-cache/<area>/<area>.osm.pbf に置き、その URL と置き場所を返す (planetiler の --osm_url /
+    --osm_path に渡す)。planetiler はファイルがあれば取り直さない (refresh_osm=false)。
+
+    - 今日 (UTC) 取ったもの (date.txt が今日) があれば、取らずに使う (同じ日の同じ地域の都市はキャッシュから戻す)。
+    - 無ければ候補を順に取る。
+    - どこからも取れなければ、前の日までに取ったもの (actions/cache の restore-keys で戻した古いもの) を使う。
+      それも無ければ失敗 (build_mbtiles が間をあけて試し直す)。
+    URL はキャッシュのものを使うときも候補の先頭を返す (planetiler は取りに行かない)。
     """
     urls = osm_source(area)
     if urls is None:
         return None, None
-    path = os.path.join(work, "sources", f"{area}.osm.pbf")
-    if os.path.exists(path) and os.path.getsize(path) > 0:
-        print(f"{area}: 元データは {path} にある (取らない)", flush=True)
+    d = osm_cache_dir(work, area)
+    path = os.path.join(d, f"{area}.osm.pbf")
+    stamp = os.path.join(d, "date.txt")
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+    have = os.path.exists(path) and os.path.getsize(path) > 0
+    got = ""
+    if have and os.path.exists(stamp):
+        with open(stamp, encoding="utf-8") as f:
+            got = f.read().strip()
+    if have and got == today:
+        print(f"{area}: 今日取った元データがある (取らない)", flush=True)
         return urls[0][1], path
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(d, exist_ok=True)
     for name, url in urls:
         try:
             run(["curl", "-fsSL", "--retry", "4", "--retry-all-errors", "--retry-delay", "30",
@@ -128,8 +150,15 @@ def fetch_osm(area, work):
             print(f"{area}: {name} から取れなかった", flush=True)
             continue
         os.replace(path + ".part", path)
+        with open(stamp, "w", encoding="utf-8") as f:
+            f.write(today + "\n")
         print(f"{area}: {name} から取った ({os.path.getsize(path) / 1e6:.0f} MB)", flush=True)
         return url, path
+    if os.path.exists(path + ".part"):
+        os.remove(path + ".part")
+    if have:
+        print(f"::warning::{area}: 元データをどこからも取れなかったので、前に取ったもの ({got or '日付不明'}) を使う", flush=True)
+        return urls[0][1], path
     raise OSError(f"{area}: OSM の元データをどこからも取れなかった")
 
 
