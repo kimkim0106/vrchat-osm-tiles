@@ -104,8 +104,9 @@ STATION_CENTERED = {
     "fukuoka": "博多駅", "sapporo": "札幌駅", "sendai": "仙台駅", "hiroshima": "広島駅", "niigata": "新潟駅",
 }
 
-# Pages に置く地域 (今までどおり。ほかは R2。Pages はサイト 1 GB まで)
-PAGES = {"tokyo", "kobe", "tokushima"}
+# Pages に置く地域 (ほかは R2。Pages はサイト 1 GB まで)。神戸と徳島は 2026-11-17 に R2 へ移した
+# (Pages を広域の地図 (日本全体と地方ごと、wide_regions.py) に空けるため。利用者の判断)
+PAGES = {"tokyo"}
 
 # 新しく足す地域の既定 (今の地域と同じ)
 DEFAULTS = {

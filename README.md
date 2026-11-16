@@ -148,7 +148,7 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 | otsu | 滋賀県 | 大津 | 県庁 (西へ 0.2 枚、南へ 0.2 枚) | kansai | R2 |
 | kyoto | 京都府 | 京都 | 県庁 (東へ 0.2 枚、北へ 0.3 枚) | kansai | R2 |
 | osaka | 大阪府 | 大阪 | 大阪駅 (東へ 0.3 枚、北へ 0.4 枚) | kansai | R2 |
-| kobe | 兵庫県 | 神戸 | 三ノ宮駅 (東へ 0.45 枚、北へ 0.2 枚) | kansai | Pages |
+| kobe | 兵庫県 | 神戸 | 三ノ宮駅 (東へ 0.45 枚、北へ 0.2 枚) | kansai | R2 (2026-11-17 に Pages から移した) |
 | nara | 奈良県 | 奈良 | 県庁 (西へ 0.0 枚、南へ 0.1 枚) | kansai | R2 |
 | wakayama | 和歌山県 | 和歌山 | 県庁 (西へ 0.2 枚、北へ 0.3 枚) | kansai | R2 |
 | tottori | 鳥取県 | 鳥取 | 県庁 (西へ 0.3 枚、南へ 0.3 枚) | japan | R2 |
@@ -156,7 +156,7 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 | okayama | 岡山県 | 岡山 | 県庁 (西へ 0.2 枚、北へ 0.3 枚) | japan | R2 |
 | hiroshima | 広島県 | 広島 | 広島駅 (西へ 0.45 枚) | chugoku | R2 |
 | yamaguchi | 山口県 | 山口 | 県庁 (西へ 0.3 枚、北へ 0.2 枚) | chugoku | R2 |
-| tokushima | 徳島県 | 徳島 | 徳島駅 (西へ 0.2 枚、北へ 0.1 枚) | shikoku | Pages |
+| tokushima | 徳島県 | 徳島 | 徳島駅 (西へ 0.2 枚、北へ 0.1 枚) | shikoku | R2 (2026-11-17 に Pages から移した) |
 | takamatsu | 香川県 | 高松 | 県庁 (東へ 0.2 枚、北へ 0.4 枚) | japan | R2 |
 | matsuyama | 愛媛県 | 松山 | 県庁 (東へ 0.2 枚、南へ 0.3 枚) | shikoku | R2 |
 | kochi | 高知県 | 高知 | 県庁 (西へ 0.4 枚、北へ 0.0 枚) | shikoku | R2 |
