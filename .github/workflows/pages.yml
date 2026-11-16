@@ -50,9 +50,13 @@ env:
   NOTO_TAG: Sans2.004
   NOTO_SHA256: b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
 
+# 実行環境は Ubuntu 24.04 に固定する (ubuntu-latest は 2026-11 に 26.04 へ移る。actions/runner-images#14748)。
+# 焼いた地域は Release に固定して配り続けるので、焼く環境も勝手に変えない。26.04 に移すときは、全部の runs-on を
+# ubuntu-26.04 にして 1 地域を rebuild し、前と同じものができるか (頂点数) を確かめてから。
+
 jobs:
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write   # Release を作る (bake の job が同時に作り合わないよう、ここでだけ作る)
     env:
@@ -92,7 +96,7 @@ jobs:
   bake:
     needs: plan
     if: needs.plan.outputs.count != '0'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
       contents: write   # Release に焼いた地域を保存する
@@ -211,7 +215,7 @@ jobs:
     needs: [plan, bake]
     # bake が無い (焼く地域が無い) ときも出す。bake のどれかが失敗したら出さない (Re-run failed jobs で続きから)
     if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.bake.result == 'success' || needs.bake.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 240   # 地域が 47 あり、新しい地域を R2 に上げると 1 地域 1.5 分ほどかかる
     env:
       GH_TOKEN: ${{ github.token }}
@@ -287,7 +291,7 @@ jobs:
   deploy:
     needs: publish
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write
@@ -304,7 +308,7 @@ jobs:
   check:
     needs: [publish, deploy]
     if: ${{ !cancelled() && needs.deploy.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
