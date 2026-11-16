@@ -192,7 +192,7 @@ jobs:
     # bake が無い (焼く地域が無い) ときも出す。bake のどれかが失敗したら出さない (Re-run failed jobs で続きから)
     if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.bake.result == 'success' || needs.bake.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240   # 地域が 47 あり、新しい地域を R2 に上げると 1 地域 1.5 分ほどかかる
     env:
       GH_TOKEN: ${{ github.token }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}

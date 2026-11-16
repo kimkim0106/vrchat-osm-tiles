@@ -1,149 +1,14 @@
 {
  "regions": [
   {
-   "name": "tokyo",
-   "title": "東京",
-   "area": "kanto",
-   "bbox": "139.55,35.50,139.96,35.87",
-   "zooms": "10-14",
-   "lang": "ja",
-   "binZooms": [
-    13
-   ],
-   "dists": [
-    "v3"
-   ],
-   "binGroups": {
-    "dists": [
-     "v3"
-    ],
-    "zooms": [
-     13,
-     14
-    ]
-   }
-  },
-  {
-   "name": "kobe",
-   "title": "神戸",
-   "area": "kansai",
-   "bbox": "134.9670,34.4975,135.3845,34.8769",
-   "zooms": "10-14",
-   "lang": "ja",
-   "binZooms": [
-    13
-   ],
-   "dists": [
-    "v3"
-   ],
-   "binGroups": {
-    "dists": [
-     "v3"
-    ],
-    "zooms": [
-     13,
-     14
-    ]
-   }
-  },
-  {
-   "name": "tokushima",
-   "title": "徳島",
-   "area": "shikoku",
-   "bbox": "134.3518,33.8795,134.7693,34.2618",
-   "zooms": "10-14",
-   "lang": "ja",
-   "binZooms": [
-    13
-   ],
-   "dists": [
-    "v3"
-   ],
-   "binGroups": {
-    "dists": [
-     "v3"
-    ],
-    "zooms": [
-     13,
-     14
-    ]
-   }
-  },
-  {
-   "name": "osaka",
-   "title": "大阪",
-   "area": "kansai",
-   "bbox": "135.2747,34.4975,135.6921,34.8769",
-   "zooms": "10-14",
-   "lang": "ja",
-   "binZooms": [
-    13
-   ],
-   "dists": [
-    "v3"
-   ],
-   "binGroups": {
-    "dists": [
-     "v3"
-    ],
-    "zooms": [
-     13,
-     14
-    ]
-   },
-   "host": "r2"
-  },
-  {
-   "name": "nagoya",
-   "title": "名古屋",
-   "area": "japan",
-   "bbox": "136.6809,34.9670,137.0984,35.3443",
-   "zooms": "10-14",
-   "lang": "ja",
-   "binZooms": [
-    13
-   ],
-   "dists": [
-    "v3"
-   ],
-   "binGroups": {
-    "dists": [
-     "v3"
-    ],
-    "zooms": [
-     13,
-     14
-    ]
-   },
-   "host": "r2"
-  },
-  {
-   "name": "fukuoka",
-   "title": "福岡",
-   "area": "kyushu",
-   "bbox": "130.2209,33.4039,130.6384,33.7883",
-   "zooms": "10-14",
-   "lang": "ja",
-   "binZooms": [
-    13
-   ],
-   "dists": [
-    "v3"
-   ],
-   "binGroups": {
-    "dists": [
-     "v3"
-    ],
-    "zooms": [
-     13,
-     14
-    ]
-   },
-   "host": "r2"
-  },
-  {
    "name": "sapporo",
    "title": "札幌",
+   "pref": "北海道",
+   "office": [
+    141.34686,
+    43.0643
+   ],
+   "center": "札幌駅",
    "area": "hokkaido",
    "bbox": "141.1633,42.8840,141.5808,43.2212",
    "zooms": "10-14",
@@ -166,8 +31,72 @@
    "host": "r2"
   },
   {
+   "name": "aomori",
+   "title": "青森",
+   "pref": "青森県",
+   "office": [
+    140.74019,
+    40.82447
+   ],
+   "area": "tohoku",
+   "bbox": "140.5481,40.6556,140.9656,41.0048",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "morioka",
+   "title": "盛岡",
+   "pref": "岩手県",
+   "office": [
+    141.15229,
+    39.70369
+   ],
+   "area": "tohoku",
+   "bbox": "140.9436,39.5125,141.3611,39.8676",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
    "name": "sendai",
    "title": "仙台",
+   "pref": "宮城県",
+   "office": [
+    140.87207,
+    38.26858
+   ],
+   "center": "仙台駅",
    "area": "tohoku",
    "bbox": "140.6799,38.0740,141.0974,38.4364",
    "zooms": "10-14",
@@ -190,10 +119,276 @@
    "host": "r2"
   },
   {
-   "name": "hiroshima",
-   "title": "広島",
-   "area": "chugoku",
-   "bbox": "132.2864,34.2073,132.7039,34.5880",
+   "name": "akita",
+   "title": "秋田",
+   "pref": "秋田県",
+   "office": [
+    140.10238,
+    39.71862
+   ],
+   "area": "tohoku",
+   "bbox": "139.8889,39.5464,140.3064,39.9013",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "yamagata",
+   "title": "山形",
+   "pref": "山形県",
+   "office": [
+    140.36343,
+    38.24067
+   ],
+   "area": "tohoku",
+   "bbox": "140.1526,38.0740,140.5701,38.4364",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "fukushima",
+   "title": "福島",
+   "pref": "福島県",
+   "office": [
+    140.46778,
+    37.75011
+   ],
+   "area": "tohoku",
+   "bbox": "140.2405,37.5533,140.6580,37.9182",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "mito",
+   "title": "水戸",
+   "pref": "茨城県",
+   "office": [
+    140.44691,
+    36.3419
+   ],
+   "area": "kanto",
+   "bbox": "140.2405,36.1467,140.6580,36.5185",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "utsunomiya",
+   "title": "宇都宮",
+   "pref": "栃木県",
+   "office": [
+    139.88356,
+    36.56581
+   ],
+   "area": "kanto",
+   "bbox": "139.6692,36.3948,140.0867,36.7653",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "maebashi",
+   "title": "前橋",
+   "pref": "群馬県",
+   "office": [
+    139.06067,
+    36.39103
+   ],
+   "area": "kanto",
+   "bbox": "138.8342,36.2177,139.2517,36.5891",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "saitama",
+   "title": "さいたま",
+   "pref": "埼玉県",
+   "office": [
+    139.64905,
+    35.85703
+   ],
+   "area": "kanto",
+   "bbox": "139.4495,35.6841,139.8669,36.0580",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "chiba",
+   "title": "千葉",
+   "pref": "千葉県",
+   "office": [
+    140.12283,
+    35.60449
+   ],
+   "area": "kanto",
+   "bbox": "139.9329,35.4338,140.3503,35.8089",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "tokyo",
+   "title": "東京",
+   "pref": "東京都",
+   "office": [
+    139.69171,
+    35.6895
+   ],
+   "center": "東京駅",
+   "area": "kanto",
+   "bbox": "139.55,35.50,139.96,35.87",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   }
+  },
+  {
+   "name": "yokohama",
+   "title": "横浜",
+   "pref": "神奈川県",
+   "office": [
+    139.64231,
+    35.44792
+   ],
+   "area": "kanto",
+   "bbox": "139.4495,35.2546,139.8669,35.6305",
    "zooms": "10-14",
    "lang": "ja",
    "binZooms": [
@@ -216,8 +411,946 @@
   {
    "name": "niigata",
    "title": "新潟",
+   "pref": "新潟県",
+   "office": [
+    139.02343,
+    37.90269
+   ],
+   "center": "新潟駅",
    "area": "chubu",
    "bbox": "138.8342,37.7273,139.2517,38.0913",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "toyama",
+   "title": "富山",
+   "pref": "富山県",
+   "office": [
+    137.2113,
+    36.69529
+   ],
+   "area": "chubu",
+   "bbox": "136.9885,36.5008,137.4060,36.8708",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kanazawa",
+   "title": "金沢",
+   "pref": "石川県",
+   "office": [
+    136.62572,
+    36.59465
+   ],
+   "area": "chubu",
+   "bbox": "136.4172,36.3948,136.8347,36.7653",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "fukui",
+   "title": "福井",
+   "pref": "福井県",
+   "office": [
+    136.22172,
+    36.06522
+   ],
+   "area": "chubu",
+   "bbox": "136.0217,35.8623,136.4392,36.2354",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kofu",
+   "title": "甲府",
+   "pref": "山梨県",
+   "office": [
+    138.56849,
+    35.66411
+   ],
+   "area": "chubu",
+   "bbox": "138.3508,35.4696,138.7683,35.8445",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "nagano",
+   "title": "長野",
+   "pref": "長野県",
+   "office": [
+    138.18089,
+    36.65131
+   ],
+   "area": "chubu",
+   "bbox": "137.9553,36.4655,138.3728,36.8357",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "gifu",
+   "title": "岐阜",
+   "pref": "岐阜県",
+   "office": [
+    136.72382,
+    35.39134
+   ],
+   "area": "japan",
+   "bbox": "136.5051,35.2187,136.9226,35.5948",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "shizuoka",
+   "title": "静岡",
+   "pref": "静岡県",
+   "office": [
+    138.38303,
+    34.97679
+   ],
+   "area": "chubu",
+   "bbox": "138.1750,34.7867,138.5925,35.1648",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "nagoya",
+   "title": "名古屋",
+   "pref": "愛知県",
+   "office": [
+    136.90651,
+    35.18022
+   ],
+   "center": "名古屋駅",
+   "area": "japan",
+   "bbox": "136.6809,34.9670,137.0984,35.3443",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "tsu",
+   "title": "津",
+   "pref": "三重県",
+   "office": [
+    136.50893,
+    34.73021
+   ],
+   "area": "kansai",
+   "bbox": "136.2854,34.5337,136.7029,34.9130",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "otsu",
+   "title": "大津",
+   "pref": "滋賀県",
+   "office": [
+    135.86918,
+    35.00437
+   ],
+   "area": "kansai",
+   "bbox": "135.6702,34.8228,136.0876,35.2007",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kyoto",
+   "title": "京都",
+   "pref": "京都府",
+   "office": [
+    135.75561,
+    35.02125
+   ],
+   "area": "kansai",
+   "bbox": "135.5383,34.8228,135.9558,35.2007",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "osaka",
+   "title": "大阪",
+   "pref": "大阪府",
+   "office": [
+    135.51988,
+    34.68633
+   ],
+   "center": "大阪駅",
+   "area": "kansai",
+   "bbox": "135.2747,34.4975,135.6921,34.8769",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kobe",
+   "title": "神戸",
+   "pref": "兵庫県",
+   "office": [
+    135.18386,
+    34.6917
+   ],
+   "center": "三ノ宮駅",
+   "area": "kansai",
+   "bbox": "134.9670,34.4975,135.3845,34.8769",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   }
+  },
+  {
+   "name": "nara",
+   "title": "奈良",
+   "pref": "奈良県",
+   "office": [
+    135.83286,
+    34.68515
+   ],
+   "area": "kansai",
+   "bbox": "135.6262,34.4975,136.0437,34.8769",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "wakayama",
+   "title": "和歌山",
+   "pref": "和歌山県",
+   "office": [
+    135.16758,
+    34.22602
+   ],
+   "area": "kansai",
+   "bbox": "134.9670,34.0253,135.3845,34.4069",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "tottori",
+   "title": "鳥取",
+   "pref": "鳥取県",
+   "office": [
+    134.23833,
+    35.50333
+   ],
+   "area": "japan",
+   "bbox": "134.0442,35.3263,134.4617,35.7019",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "matsue",
+   "title": "松江",
+   "pref": "島根県",
+   "office": [
+    133.0508,
+    35.47157
+   ],
+   "area": "chugoku",
+   "bbox": "132.8577,35.2905,133.2751,35.6662",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "okayama",
+   "title": "岡山",
+   "pref": "岡山県",
+   "office": [
+    133.93492,
+    34.66175
+   ],
+   "area": "japan",
+   "bbox": "133.7366,34.4613,134.1541,34.8409",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "hiroshima",
+   "title": "広島",
+   "pref": "広島県",
+   "office": [
+    132.45999,
+    34.39629
+   ],
+   "center": "広島駅",
+   "area": "chugoku",
+   "bbox": "132.2864,34.2073,132.7039,34.5880",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "yamaguchi",
+   "title": "山口",
+   "pref": "山口県",
+   "office": [
+    131.4714,
+    34.18586
+   ],
+   "area": "chugoku",
+   "bbox": "131.2756,33.9889,131.6931,34.3706",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "tokushima",
+   "title": "徳島",
+   "pref": "徳島県",
+   "office": [
+    134.55945,
+    34.06577
+   ],
+   "center": "徳島駅",
+   "area": "shikoku",
+   "bbox": "134.3518,33.8795,134.7693,34.2618",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   }
+  },
+  {
+   "name": "takamatsu",
+   "title": "高松",
+   "pref": "香川県",
+   "office": [
+    134.04397,
+    34.34014
+   ],
+   "area": "japan",
+   "bbox": "133.8245,34.1345,134.2419,34.5156",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "matsuyama",
+   "title": "松山",
+   "pref": "愛媛県",
+   "office": [
+    132.76567,
+    33.84161
+   ],
+   "area": "shikoku",
+   "bbox": "132.5500,33.6604,132.9675,34.0436",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kochi",
+   "title": "高知",
+   "pref": "高知県",
+   "office": [
+    133.53092,
+    33.55971
+   ],
+   "area": "shikoku",
+   "bbox": "133.3411,33.3672,133.7585,33.7517",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "fukuoka",
+   "title": "福岡",
+   "pref": "福岡県",
+   "office": [
+    130.4181,
+    33.60632
+   ],
+   "center": "博多駅",
+   "area": "kyushu",
+   "bbox": "130.2209,33.4039,130.6384,33.7883",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "saga",
+   "title": "佐賀",
+   "pref": "佐賀県",
+   "office": [
+    130.29905,
+    33.24947
+   ],
+   "area": "kyushu",
+   "bbox": "130.0891,33.0731,130.5066,33.4589",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "nagasaki",
+   "title": "長崎",
+   "pref": "長崎県",
+   "office": [
+    129.86761,
+    32.74998
+   ],
+   "area": "kyushu",
+   "bbox": "129.6497,32.5561,130.0671,32.9441",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kumamoto",
+   "title": "熊本",
+   "pref": "熊本県",
+   "office": [
+    130.74174,
+    32.79041
+   ],
+   "area": "kyushu",
+   "bbox": "130.5286,32.5931,130.9460,32.9810",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "oita",
+   "title": "大分",
+   "pref": "大分県",
+   "office": [
+    131.61254,
+    33.23833
+   ],
+   "area": "kyushu",
+   "bbox": "131.4075,33.0363,131.8250,33.4223",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "miyazaki",
+   "title": "宮崎",
+   "pref": "宮崎県",
+   "office": [
+    131.42388,
+    31.91104
+   ],
+   "area": "kyushu",
+   "bbox": "131.2317,31.7001,131.6492,32.0919",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "kagoshima",
+   "title": "鹿児島",
+   "pref": "鹿児島県",
+   "office": [
+    130.55801,
+    31.56019
+   ],
+   "area": "kyushu",
+   "bbox": "130.3528,31.3630,130.7703,31.7562",
+   "zooms": "10-14",
+   "lang": "ja",
+   "binZooms": [
+    13
+   ],
+   "dists": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     13,
+     14
+    ]
+   },
+   "host": "r2"
+  },
+  {
+   "name": "naha",
+   "title": "那覇",
+   "pref": "沖縄県",
+   "office": [
+    127.68098,
+    26.21236
+   ],
+   "area": "kyushu",
+   "bbox": "127.4524,26.0074,127.8699,26.4214",
    "zooms": "10-14",
    "lang": "ja",
    "binZooms": [
