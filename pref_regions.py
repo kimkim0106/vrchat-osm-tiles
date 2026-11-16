@@ -9,6 +9,7 @@
 範囲 (今までの地域と同じ決め方。床マップは z13 で 10 x 11 枚 = 床 20 m x 22 m):
   県庁の z13 のタイル座標を (X, Y) として、横は round(X) - 5 から 10 枚、縦は floor(Y) - 5 から 11 枚。
   bbox はその四辺を 0.25 枚ずつ内側に寄せた経緯度 (小数 4 桁)。県庁は中心から最大で半タイル (約 2.4 km) ずれる。
+  前からある 10 地域 (STATION_CENTERED) は駅中心のまま、bbox と area を変えない (pref / office / center だけ書く)。
 
 地域の名前 (`name`) は県庁所在地のローマ字 (今までの 10 地域と同じ。URL の一部なので変えない)。
 `pref` (都道府県名) と `office` (県庁の [経度, 緯度]) は記録用で、焼くときには使わない。
@@ -80,7 +81,8 @@ OFFICES = [
 
 # planetiler の --area (Geofabrik の地域)。都道府県から決まる地域で、範囲に隣の地域の陸地が入るものは japan (全国)。
 # 1 つの地域だけ取ると、隣の地域の陸地は海岸線だけで道路などが無くなる (前の徳島の淡路島)。
-#   岐阜 = 三重の北端 (いなべ) / 名古屋 = 三重の桑名 / 鳥取 = 兵庫の西端 / 岡山 = 香川の直島 / 徳島 = 淡路島 / 高松 = 岡山の玉野
+#   岐阜 = 三重の北端 (いなべ) / 鳥取 = 兵庫の西端 / 岡山 = 香川の直島 / 高松 = 岡山の玉野
+#   (駅中心のままの名古屋は japan、徳島は shikoku (淡路島の道路などが無い) のまま。下の STATION_CENTERED)
 # 津 (伊勢湾) と松山 (瀬戸内海) は隣の地域の .poly にかかるが海だけなので、そのまま。
 GEOFABRIK = {
     "hokkaido": [1],
@@ -92,7 +94,15 @@ GEOFABRIK = {
     "shikoku": [36, 37, 38, 39],
     "kyushu": [40, 41, 42, 43, 44, 45, 46, 47],
 }
-JAPAN = {"gifu", "nagoya", "tottori", "okayama", "tokushima", "takamatsu"}
+JAPAN = {"gifu", "tottori", "okayama", "takamatsu"}
+
+# 駅を中心にしたまま変えない地域 (県庁所在地の地域より前からあるもの)。bbox と area は regions.json のものをそのまま使う。
+# 範囲を変えると、manifest を焼き込んだ公開中のワールドで床が崩れる (タイルの並びが変わる)。ワールドが実行時に manifest を
+# 読むようになったら、県庁中心に焼き直してよい (そのときはここから外して rebuild)。
+STATION_CENTERED = {
+    "tokyo": "東京駅", "kobe": "三ノ宮駅", "tokushima": "徳島駅", "osaka": "大阪駅", "nagoya": "名古屋駅",
+    "fukuoka": "博多駅", "sapporo": "札幌駅", "sendai": "仙台駅", "hiroshima": "広島駅", "niigata": "新潟駅",
+}
 
 # Pages に置く地域 (今までどおり。ほかは R2。Pages はサイト 1 GB まで)
 PAGES = {"tokyo", "kobe", "tokushima"}
@@ -152,8 +162,11 @@ def entry_for(office, old):
     r.setdefault("title", title)
     r["pref"] = pref
     r["office"] = [lon, lat]
-    r["area"] = area_of(jis, name)
-    r["bbox"] = f"{w:.4f},{s:.4f},{e:.4f},{n:.4f}"
+    if name in STATION_CENTERED and old:
+        r["center"] = STATION_CENTERED[name]  # 範囲は駅中心のまま (bbox と area を変えない)
+    else:
+        r["area"] = area_of(jis, name)
+        r["bbox"] = f"{w:.4f},{s:.4f},{e:.4f},{n:.4f}"
     for k, v in DEFAULTS.items():
         r.setdefault(k, json.loads(json.dumps(v)))
     if name in PAGES:
@@ -161,7 +174,7 @@ def entry_for(office, old):
     else:
         r["host"] = "r2"
     # キーの並びをそろえる (読みやすさのため。中身は変わらない)
-    order = ["name", "title", "pref", "office", "area", "bbox", "zooms", "lang", "binZooms", "dists", "releaseOnly",
+    order = ["name", "title", "pref", "office", "center", "area", "bbox", "zooms", "lang", "binZooms", "dists", "releaseOnly",
              "binGroups", "host"]
     return {k: r[k] for k in order if k in r} | {k: v for k, v in r.items() if k not in order}
 
@@ -232,6 +245,9 @@ def check_areas():
             polys[a] = read_poly(f.read().decode())
     n = 30
     for jis, pref, title, name, lon, lat in OFFICES:
+        if name in STATION_CENTERED:
+            print(f"{jis:2} {name:11} 駅中心のまま (調べない)")
+            continue
         (w, s, e, nn), off = bbox_of(lon, lat)
         count = {}
         for i in range(n):
