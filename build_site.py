@@ -49,6 +49,12 @@ regions.json の地域に "binGroups": {"dists": ["v3"], "zooms": [13, 14]} が�
 Pages は容量を生の大きさで数えるので入らない)。String Loading で 1 回に数枚取れるので、床の取得が速くなる。
 R2 を読めない人 (「Allow Untrusted URLs」がオフ) は、床が 2 回失敗した後でシートごとの取得に戻る。
 
+regions.json の地域に "wide": true があれば広域の地図 (日本全体と地方ごと。wide_regions.py が書く)。v3 だけを作る。
+  "wideLabels": 地名の点 (wide_labels.py が国土数値情報から作った labels/wide_japan.json)。OpenStreetMap の地名と POI の代わり
+  "boundaryLevels": 境界線はこの admin_level の陸上の線だけ (都道府県境 = [4])
+  "labelVerts": 1 タイルのラベル頂点の上限 (Unity の地名の入れ物の最大と合わせる)
+  "tileSize" / "tiles": 床の 1 枚の大きさ (m) と枚数。記録用 (Unity で床マップを作るときに使う)
+
 --tools には planetiler.jar と NotoSansCJK-Regular.ttc を置く。
 """
 import argparse
@@ -179,8 +185,10 @@ def _planetiler(region, tools, work, java_mem, out):
     osm_url, osm_path = fetch_osm(region["area"], work)
     # 元データを自分で取ったときは、その URL と置き場所を渡す (planetiler が Geofabrik の索引を引かないように)
     osm = [f"--osm_url={osm_url}", f"--osm_path={osm_path}"] if osm_url else []
+    # 焼くズームより上は作らない (広域の地図は日本全体を z11 までにして速くする。都市は 14 で、planetiler の既定と同じ)
+    maxzoom = max(int(v) for v in region["zooms"].split("-"))
     run(["java", f"-Xmx{java_mem}", "-jar", os.path.join(tools, "planetiler.jar"),
-         "--download", f"--area={region['area']}", f"--bounds={region['bbox']}", *osm,
+         "--download", f"--area={region['area']}", f"--bounds={region['bbox']}", f"--maxzoom={maxzoom}", *osm,
          f"--download_dir={os.path.join(work, 'sources')}", f"--tmpdir={os.path.join(work, 'tmp')}",
          f"--output={out}", "--force"])
     return out
@@ -199,6 +207,7 @@ def region_entry(region, manifest):
         "binBytes": sum(t.get("binBytes", 0) for t in manifest.get("sheets") or []),
         "images": len(manifest.get("sheets") or manifest["tiles"]),
         "attribution": manifest.get("attribution", ""),
+        "labelAttribution": manifest.get("labelAttribution", []),
         "built": now(),
         "commit": os.environ.get("GITHUB_SHA", ""),
     }
@@ -238,6 +247,15 @@ def validate_regions(regions):
             sys.exit(f"{r['name']}: 同じ版を dists と releaseOnly の両方に書いている")
         if r.get("host", "pages") not in HOSTS:
             sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
+        if r.get("wide"):
+            if set(dists or []) | set(only) != {POI_DIST}:
+                sys.exit(f"{r['name']}: 広域の地図 (wide) は {POI_DIST} だけを作る (dists か releaseOnly に {POI_DIST} だけ)")
+            labels = r.get("wideLabels")
+            if not labels or not os.path.exists(os.path.join(HERE, labels)):
+                sys.exit(f"{r['name']}: wideLabels のファイルが無い ({labels})")
+            verts = r.get("labelVerts")
+            if verts is not None and (verts <= 0 or verts % 90):
+                sys.exit(f"{r['name']}: labelVerts は 90 の倍数")
         groups = r.get("binGroups")
         if groups is not None:
             if set(groups) != {"dists", "zooms"} or set(groups["dists"]) - {SHEET_DIST, POI_DIST} or not groups["zooms"]:
@@ -255,6 +273,12 @@ def bake_tiles(region, mbtiles, tools, out, jobs, poi):
         cmd += ["--lang", region["lang"]]
     if not poi:
         cmd.append("--no-poi")
+    if region.get("wideLabels"):
+        cmd += ["--wide-labels", os.path.join(HERE, region["wideLabels"])]
+    if region.get("boundaryLevels"):
+        cmd += ["--boundary-levels", ",".join(str(v) for v in region["boundaryLevels"])]
+    if region.get("labelVerts"):
+        cmd += ["--label-verts", str(region["labelVerts"])]
     run(cmd)
     shutil.rmtree(os.path.join(out, "_parts"), ignore_errors=True)
     with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
@@ -384,6 +408,7 @@ def write_indexes(site):
 
     blocks = []
     attributions = set()
+    label_attributions = set()  # 広域の地図の地名 (国土数値情報。CC BY 4.0)
     for dist, entries in sections:
         rows = "\n".join(
             f"<tr><td>{html.escape(e['title'])}</td>"
@@ -393,6 +418,7 @@ def write_indexes(site):
             f"<td>{html.escape(e.get('built', '')[:10])}</td></tr>"
             for e in entries)
         attributions.update(e["attribution"] for e in entries if e["attribution"])
+        label_attributions.update(a for e in entries for a in e.get("labelAttribution") or [])
         blocks.append(f"""<h2>形式 VMT-DT {dist[1:]} (<a href="{dist}/index.json">{dist}/index.json</a>)</h2>
 <table><tr><th>地域</th><th>manifest</th><th>ズーム</th><th>タイル</th><th>画像</th><th>容量</th><th>焼いた日</th></tr>
 {rows}
@@ -407,6 +433,7 @@ table{{border-collapse:collapse}}td,th{{border-bottom:1px solid #ccc;padding:.25
 {chr(10).join(blocks)}
 <p>地図データ: {html.escape(" / ".join(sorted(attributions)) or "© OpenStreetMap contributors")}
 (<a href="https://www.openstreetmap.org/copyright">ODbL</a>)。文字: Noto Sans CJK (SIL Open Font License 1.1)。</p>
+{"<p>広域の地図の地名: " + html.escape(" / ".join(sorted(label_attributions))) + " (CC BY 4.0)。</p>" if label_attributions else ""}
 <p>生成: {generated}</p>
 </body></html>
 """

@@ -5,12 +5,14 @@
   DIR/v2/<name>/...                     地域 (R2 にまだ無いか、--force に指定したときだけ上げる)
 
 R2 の地域も Pages と同じく固定する (ワールドは manifest の頂点数を焼き込む)。上げ直すのは、この実行で焼いた・まとめた地域と、
-R2 に manifest.json が無い地域だけ。上げる順は画像と生データが先、manifest.json が最後
+R2 に manifest.json が無い地域と、R2 にまとめた .bin しか無い地域 (下) だけ。上げる順は画像と生データが先、manifest.json が最後
 (途中で止まっても、manifest が無ければ次の実行で上げ直す)。
 
 まとめた .bin (vmt_bingroup.py。DIR/<版>/<地域>/bingroups/<まとめ方のハッシュ>/z/k.bin) は、Pages の地域のものも
 ここに置く (その地域のディレクトリには manifest.json と bingroups/ だけがある)。地域が R2 にあっても、manifest の
 binGroups の .bin が R2 に無ければ、それだけ上げる (まとめ方を変えるとハッシュが変わり、別のパスになる)。
+Pages から R2 に移した地域 (神戸・徳島、2026-11-17) は、R2 に manifest.json とまとめた .bin だけがあり、シートが無い。
+DIR にその地域の画像があり、R2 に無ければ、R2 にある manifest.json に関係なく全部を上げる (images_missing)。
 
 圧縮: .bin (RGB24 の生データ) と .json / .html は gzip にして Content-Encoding: gzip を付けて置く。
 PNG はもともと圧縮してあるのでそのまま。Pages も .bin を gzip で返している (UnityWebRequest は自分で展開する)。
@@ -110,7 +112,8 @@ def main():
                     continue
                 prefix = f"{dist}/{name}/"
                 sdir = os.path.join(staged, dist, name)
-                if name in force or f"{dist}/{name}" in force or not exists(bucket, prefix + "manifest.json"):
+                if name in force or f"{dist}/{name}" in force or not exists(bucket, prefix + "manifest.json") \
+                        or images_missing(rdir, bucket, prefix):
                     print(f"{prefix}: 上げる")
                     stage(rdir, sdir)  # gzip にするのは上げる地域だけ
                     put_tree(sdir, bucket, prefix, [".png", ".bin"])
@@ -144,6 +147,18 @@ def put_jsons(sdir, bucket, prefix):
         if os.path.exists(path):
             aws("s3", "cp", path, f"s3://{bucket}/{prefix}{name}", "--only-show-errors",
                 "--content-type", TYPES[".json"], "--content-encoding", "gzip", "--cache-control", CACHE)
+
+
+def images_missing(rdir, bucket, prefix):
+    """DIR の地域に画像 (シートかタイル) があり、その最初と最後が R2 に無いか。
+    Pages の地域 (DIR には manifest.json と bingroups/ だけ) は画像が無いので False。"""
+    with open(os.path.join(rdir, "manifest.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    images = [e["png"] for e in (m.get("sheets") or m.get("tiles") or [])]
+    ends = images[:1] + images[-1:]
+    if not ends or not all(os.path.exists(os.path.join(rdir, p)) for p in ends):
+        return False
+    return any(not exists(bucket, prefix + p) for p in ends)
 
 
 def missing_bin_groups(rdir, bucket, prefix):

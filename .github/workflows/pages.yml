@@ -28,6 +28,7 @@ on:
       - check_site.py
       - r2_upload.py
       - regions.json
+      - labels/**
       - requirements.txt
       - .github/workflows/pages.yml
   workflow_dispatch:
