@@ -20,6 +20,10 @@ vmt_bake.py --wide-labels がこれを読み、地名の候補にする (種類 
                        真ん中の平均。新幹線の駅か、乗り入れる路線が 3 つ以上なら station_major。order は路線の数の多い順
                        (駅グループのコード N02_005g でまとめると、東京駅が JR と丸ノ内線で 2 つに分かれた)
 - 島 (island)          MANUAL (低いズームの OpenStreetMap のデータに無い島。北方領土・竹島・南鳥島・沖ノ鳥島・尖閣諸島)
+- 小さい島 (island_minor)
+                       MANUAL_MINOR (東京都の島嶼部の島。伊豆・小笠原の地図のため)。町村より後に置く (町村の名前を先に出す)。
+                       島 1 つで 1 町村のもの (八丈島と八丈町など) は、名前の位置が重なって出られないので足さない
+  POSITION の市区町村は、点を役場のある島にする (小笠原村はいちばん大きい面が硫黄島なので、そのままだと硫黄島に出る)
 
 order は同じ kind の中で先に置く順 (小さいほど先)。市区町村は面積の大きい順、駅は路線の多い順。
 
@@ -52,6 +56,16 @@ MANUAL = [
     ("南鳥島", 153.9806, 24.2867),
     ("沖ノ鳥島", 136.0819, 20.4256),
 ]
+# 東京都の島嶼部の島 (名前, 経度, 緯度)。町村の名前と重ならないよう、町村の点 (島のまん中か役場) から少しずらしてある
+MANUAL_MINOR = [
+    ("新島", 139.265, 34.41), ("式根島", 139.215, 34.325), ("鳥島", 140.305, 30.483),
+    ("聟島列島", 142.15, 27.65), ("父島", 142.205, 27.055), ("母島", 142.16, 26.64),
+    ("北硫黄島", 141.235, 25.43), ("硫黄島", 141.32, 24.775), ("南硫黄島", 141.457, 24.23),
+]
+# 点を役場のある島にする市区町村 (コード -> 経度, 緯度)
+POSITION = {
+    "13421": (142.19, 27.09),  # 小笠原村 (村役場は父島)
+}
 SIMPLIFY_DEG = 0.0005      # 面を間引く幅 (約 50 m)。点を決めるだけなので粗くてよい
 POLYLABEL_PRECISION = 0.002  # polylabel の精度 (約 200 m)
 MAJOR_LINES = 3            # この数以上の路線が乗り入れる駅は station_major
@@ -297,7 +311,7 @@ def admin_labels(path):
         x, y = sh.label_point(True)
         out.append({"name": city, "kind": "designated", "lon": x, "lat": y, "order": -sh.area()})
     for code, m in sorted(munis.items()):
-        pt = m["shape"].label_point(False)
+        pt = POSITION.get(code) or m["shape"].label_point(False)
         if pt:
             out.append({"name": m["name"], "kind": m["kind"], "lon": pt[0], "lat": pt[1], "order": -m["shape"].area(),
                         "code": code})
@@ -363,6 +377,7 @@ def main():
     args = ap.parse_args()
     labels = pref_labels(args.n03_pref) + admin_labels(args.n03) + station_labels(args.n02)
     labels += [{"name": n, "kind": "island", "lon": x, "lat": y, "order": 0} for n, x, y in MANUAL]
+    labels += [{"name": n, "kind": "island_minor", "lon": x, "lat": y, "order": 0} for n, x, y in MANUAL_MINOR]
     for e in labels:
         e["lon"], e["lat"] = round(e["lon"], 5), round(e["lat"], 5)
         e["order"] = round(e["order"], 6)

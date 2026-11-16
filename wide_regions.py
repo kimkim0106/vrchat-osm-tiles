@@ -9,6 +9,8 @@
   - 関東は小笠原村 (13421。南鳥島・沖ノ鳥島を含む) を入れない (日本全体の地図にだけ出る)
   - 奄美群島 (奄美市と大島郡) とトカラ列島 (十島村) は沖縄の地図に入れる。沖縄の地図は横幅で大きさが決まるので、
     北へ伸ばしても縮まない (九州に入れると九州が細長くなり、1 枚 2.75 m → 1.57 m)
+  - 東京都の島嶼部 (伊豆諸島と小笠原諸島) の地図を別に作る (利用者の案、2026-11-17)。南鳥島と沖ノ鳥島は入れない
+    (入れると床の 1 m が約 97 km になり、日本全体 (154 km) とあまり変わらない)。小笠原村の中のこの 2 島は面ごとに外す
 ズーム: 床は 20 m x 22 m。base のズーム z のタイル数を w x h として、1 枚の大きさは min(20 / w, 22 / h) m。
   日本全体は z7 (12 x 12、1.67 m)。地方は 1 枚が MIN_TILE m 以上になるいちばん大きいズーム。焼くのは z と z + 1 (足元の詳細)。
   tileSize (1 枚の大きさ) は記録用 (Unity で床マップを作るときに渡す)。焼くときには使わない。
@@ -33,7 +35,15 @@ LABEL_VERTS = 49140
 AMAMI = ["46222"] + [f"465{i}" for i in range(23, 36)]  # 奄美市と大島郡の町村
 TOKARA = ["46304"]                                      # 十島村
 OGASAWARA = ["13421"]
-# (name, title, 都道府県コード, 入れない市区町村, 足す市区町村)
+TOKYO_ISLANDS = ["13361", "13362", "13363", "13364", "13381", "13382", "13401", "13402", "13421"]  # 大島町〜小笠原村
+
+
+def not_far_islands(b):
+    """南鳥島 (東経 150 度より東) と沖ノ鳥島 (北緯 21 度より南) の面でない。"""
+    return b[2] < 150.0 and b[1] > 21.0
+
+
+# (name, title, 都道府県コード, 入れない市区町村, 足す市区町村[, 面を選ぶ関数])
 WIDE = [
     ("wide-japan", "日本全体", [f"{i:02d}" for i in range(1, 48)], [], []),
     ("wide-hokkaido", "北海道地方", ["01"], [], []),
@@ -45,6 +55,7 @@ WIDE = [
     ("wide-shikoku", "四国地方", ["36", "37", "38", "39"], [], []),
     ("wide-kyushu", "九州地方", ["40", "41", "42", "43", "44", "45", "46"], AMAMI + TOKARA, []),
     ("wide-okinawa", "沖縄・奄美", ["47"], [], AMAMI + TOKARA),
+    ("wide-izu-ogasawara", "伊豆・小笠原", [], [], TOKYO_ISLANDS, not_far_islands),
 ]
 
 
@@ -66,6 +77,7 @@ def tiles(bbox, z):
 
 
 def muni_boxes(path):
+    """{市区町村コード: [面ごとの範囲 [西, 南, 東, 北], ...]}"""
     print(f"読む: {path}", flush=True)
     with open(path, encoding="utf-8") as f:
         feats = json.load(f)["features"]
@@ -76,17 +88,18 @@ def muni_boxes(path):
         if not code or code.endswith("000") or not g:
             continue
         polys = [g["coordinates"]] if g["type"] == "Polygon" else g["coordinates"]
-        b = boxes.setdefault(code, [999.0, 999.0, -999.0, -999.0])
         for poly in polys:
-            for x, y in poly[0]:
-                b[0], b[1], b[2], b[3] = min(b[0], x), min(b[1], y), max(b[2], x), max(b[3], y)
+            xs = [p[0] for p in poly[0]]
+            ys = [p[1] for p in poly[0]]
+            boxes.setdefault(code, []).append([min(xs), min(ys), max(xs), max(ys)])
     return boxes
 
 
 def wide_regions(boxes):
     out = []
-    for name, title, prefs, drop, add in WIDE:
-        bs = [b for c, b in boxes.items() if (c[:2] in prefs and c not in drop) or c in add]
+    for name, title, prefs, drop, add, *piece in WIDE:
+        keep = piece[0] if piece else (lambda b: True)
+        bs = [b for c, bb in boxes.items() if (c[:2] in prefs and c not in drop) or c in add for b in bb if keep(b)]
         # 外へ 0.001 度 (約 100 m) 広げて小数 4 桁に丸める (端の島がタイルの外に出ないように)
         bbox = [math.floor((min(b[0] for b in bs) - 0.001) * 1e4) / 1e4, math.floor((min(b[1] for b in bs) - 0.001) * 1e4) / 1e4,
                 math.ceil((max(b[2] for b in bs) + 0.001) * 1e4) / 1e4, math.ceil((max(b[3] for b in bs) + 0.001) * 1e4) / 1e4]

@@ -163,6 +163,7 @@ WIDE_KINDS = {
     "town": (0, 12, 4, 4),
     "ward": (0, 11, 5, 4),
     "station": (1, 11, 6, 3),
+    "island_minor": (0, 12, 7, 4),
     "osm": (0, 12, 7, 4),
 }
 WIDE_OSM_PLACE = {"island"}                                  # place レイヤーの class

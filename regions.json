@@ -1691,6 +1691,38 @@
      10
     ]
    }
+  },
+  {
+   "name": "wide-izu-ogasawara",
+   "title": "伊豆・小笠原",
+   "wide": true,
+   "area": "japan",
+   "bbox": "138.8144,24.2235,142.2536,34.8003",
+   "zooms": "8-9",
+   "tiles": [
+    4,
+    10
+   ],
+   "tileSize": 2.2,
+   "lang": "ja",
+   "wideLabels": "labels/wide_japan.json",
+   "boundaryLevels": [
+    4
+   ],
+   "labelVerts": 49140,
+   "dists": [],
+   "releaseOnly": [
+    "v3"
+   ],
+   "binGroups": {
+    "dists": [
+     "v3"
+    ],
+    "zooms": [
+     8,
+     9
+    ]
+   }
   }
  ]
 }
