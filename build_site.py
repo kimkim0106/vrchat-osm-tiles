@@ -84,22 +84,74 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 
+# OSM の元データ (日本の地域) を取る場所。上から順に試す。
+# Geofabrik は GitHub Actions のマシンからの接続を拒むことがある (同じマシンからは何分たっても Connection refused。
+# 2026-11-16 に東北の 3 地域が 3 回とも落ちた)。openstreetmap.fr は同じ名前の地域を配っている (地域の境界の線は
+# Geofabrik と少し違う。pref_regions.py の area は Geofabrik の境界で決めている)。
+OSM_MIRRORS = [
+    ("geofabrik", "https://download.geofabrik.de/asia/{path}-latest.osm.pbf"),
+    ("openstreetmap.fr", "https://download.openstreetmap.fr/extracts/asia/{path}-latest.osm.pbf"),
+]
+JAPAN_AREAS = {"hokkaido", "tohoku", "kanto", "chubu", "kansai", "chugoku", "shikoku", "kyushu"}
+
+
+def osm_source(area):
+    """area の OSM の元データの URL の候補。日本の地域でなければ None (planetiler の --area に任せる)。"""
+    if area == "japan":
+        path = "japan"
+    elif area in JAPAN_AREAS:
+        path = f"japan/{area}"
+    else:
+        return None
+    return [(name, url.format(path=path)) for name, url in OSM_MIRRORS]
+
+
+def fetch_osm(area, work):
+    """
+    OSM の元データを work/sources/<area>.osm.pbf に置き、取った URL を返す (planetiler の --osm_url に渡す)。
+    planetiler はファイルがあれば取り直さない (refresh_osm=false) ので、キャッシュ (Actions の actions/cache) から戻した
+    ファイルもそのまま使う。そのときの URL は候補の先頭 (planetiler は取りに行かない)。
+    """
+    urls = osm_source(area)
+    if urls is None:
+        return None, None
+    path = os.path.join(work, "sources", f"{area}.osm.pbf")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        print(f"{area}: 元データは {path} にある (取らない)", flush=True)
+        return urls[0][1], path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    for name, url in urls:
+        try:
+            run(["curl", "-fsSL", "--retry", "4", "--retry-all-errors", "--retry-delay", "30",
+                 "--connect-timeout", "30", "-A", "vrchat-osm-tiles (GitHub Actions)", "-o", path + ".part", url])
+        except subprocess.CalledProcessError:
+            print(f"{area}: {name} から取れなかった", flush=True)
+            continue
+        os.replace(path + ".part", path)
+        print(f"{area}: {name} から取った ({os.path.getsize(path) / 1e6:.0f} MB)", flush=True)
+        return url, path
+    raise OSError(f"{area}: OSM の元データをどこからも取れなかった")
+
+
 def build_mbtiles(region, tools, work, java_mem):
     out = os.path.join(work, f"{region['name']}.mbtiles")
-    # Geofabrik は続けて取ると接続を拒むことがあるので、間をあけて試し直す (取れた元データは download_dir に残る)
+    # 元データの取得や planetiler (水域などのほかの元データも取る) が落ちたら、間をあけて試し直す (取れたものは残る)
     for attempt in range(1, 4):
         try:
             return _planetiler(region, tools, work, java_mem, out)
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, OSError) as e:
             if attempt == 3:
                 raise
-            print(f"{region['name']}: planetiler が失敗した。{120 * attempt} 秒後に試し直す ({attempt}/3)", flush=True)
+            print(f"{region['name']}: 失敗した ({e})。{120 * attempt} 秒後に試し直す ({attempt}/3)", flush=True)
             time.sleep(120 * attempt)
 
 
 def _planetiler(region, tools, work, java_mem, out):
+    osm_url, osm_path = fetch_osm(region["area"], work)
+    # 元データを自分で取ったときは、その URL と置き場所を渡す (planetiler が Geofabrik の索引を引かないように)
+    osm = [f"--osm_url={osm_url}", f"--osm_path={osm_path}"] if osm_url else []
     run(["java", f"-Xmx{java_mem}", "-jar", os.path.join(tools, "planetiler.jar"),
-         "--download", f"--area={region['area']}", f"--bounds={region['bbox']}",
+         "--download", f"--area={region['area']}", f"--bounds={region['bbox']}", *osm,
          f"--download_dir={os.path.join(work, 'sources')}", f"--tmpdir={os.path.join(work, 'tmp')}",
          f"--output={out}", "--force"])
     return out
