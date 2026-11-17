@@ -43,7 +43,7 @@ https://kimkim0106.github.io/vrchat-osm-tiles/tools/ink-geojson/             ペ
 
 ワールドの設定タブレットの「書き出す」で出した GeoJSON (地図用のペンで書いた線) を、VRChat のログ (`output_log_*.txt`) か
 Unity の `Editor.log` から取り出すページです。ログはブラウザの中だけで読み、どこにも送りません。
-中身はリポジトリの `tools/ink-geojson/index.html` (ワールドのリポジトリの `Tools/InkExport/extract_ink_geojson.html` と同じもの) で、
+中身はリポジトリの `tools/ink-geojson/index.html` で、
 Actions が `tools/` をそのままサイトに写します。`tools/` を変えて main に push すると、地域は焼かずに配り直します。
 
 ## 焼いた地域は固定する
