@@ -172,7 +172,8 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 ### 広域の地図 (日本全体と地方ごと)
 
 `"wide": true` の地域は、日本全体と地方ごとの床マップです (`wide_regions.py` が `regions.json` に書く)。設計は
-vrchat-osm の Issue #18。今は `"releaseOnly": ["v3"]` で焼いて Release に保存するだけで、大きさと見た目を確かめてから `dists` に移します。
+vrchat-osm の Issue #18。Pages で配る (`"dists": ["v3"]`、2026-11-17 から。11 地域で 398 MB、東京と合わせて 766 MB)。
+`wide_regions.py` で足した地域は最初 `"releaseOnly": ["v3"]` (Release に保存するだけ) で、確かめてから `dists` に移す。
 
 ```bash
 python wide_regions.py <N03-20260101.geojson>        # 範囲とズームを決めて regions.json に書く
