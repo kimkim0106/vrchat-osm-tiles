@@ -29,6 +29,7 @@ on:
       - r2_upload.py
       - regions.json
       - labels/**
+      - tools/**
       - requirements.txt
       - .github/workflows/pages.yml
   workflow_dispatch:
@@ -284,6 +285,10 @@ jobs:
         if: env.R2_ACCOUNT_ID == '' || env.R2_BUCKET == ''
         run: echo "::warning::R2 の Secrets / Variables が無いので、host が r2 の地域は上げていない (Release には保存した)"
 
+      # 人が使う Web のツール (ログからペンの線の GeoJSON を取り出すなど)。地域の版と同じサイトに置く
+      - name: ツールを置く
+        run: cp -R tools site/tools
+
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
@@ -316,6 +321,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.15"
+      - name: ツールのページを確かめる
+        run: curl -fsS -o /dev/null -w '%{http_code} %{url_effective}\n' "${{ needs.deploy.outputs.page_url }}tools/ink-geojson/"
       - if: needs.publish.outputs.pages_dists != ''
         run: python check_site.py --dists "${{ needs.publish.outputs.pages_dists }}" "${{ needs.deploy.outputs.page_url }}"
       - name: R2 を確かめる

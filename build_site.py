@@ -2,6 +2,7 @@
 """build_site.py - regions.json の地域ごとに MBTiles を作り、VMT-DT のタイルに焼いて site/ にまとめる。
 
   site/index.html                     人が見る用の一覧と帰属表示 (すべての版)
+  site/tools/                         人が使う Web のツール (リポジトリの tools/ を Actions が写す。build_site.py は作らない)
   site/v1/index.json                  その版の地域の一覧 (String Loading で読む想定)
   site/v1/<name>/manifest.json        vmt_bake.py の manifest
   site/v1/<name>/region.json          index.json に載せる情報 (焼いた日時とコミットを含む)
@@ -433,6 +434,7 @@ table{{border-collapse:collapse}}td,th{{border-bottom:1px solid #ccc;padding:.25
 {chr(10).join(blocks)}
 <p>地図データ: {html.escape(" / ".join(sorted(attributions)) or "© OpenStreetMap contributors")}
 (<a href="https://www.openstreetmap.org/copyright">ODbL</a>)。文字: Noto Sans CJK (SIL Open Font License 1.1)。</p>
+<p>ツール: <a href="tools/ink-geojson/">ペンの線の取り出し</a> (VRChat のログから、設定タブレットで書き出した GeoJSON を取り出す)。</p>
 {"<p>広域の地図の地名: " + html.escape(" / ".join(sorted(label_attributions))) + " (CC BY 4.0)。</p>" if label_attributions else ""}
 <p>生成: {generated}</p>
 </body></html>

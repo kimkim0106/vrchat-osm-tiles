@@ -35,6 +35,17 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v3/<地域>/...                  v
 `v3` はシートの形式は v2 と同じ (manifest の `version` は 2) で、POI を入れたものです (index.json の `version` は 3)。
 v2 までのワールドのシェーダーは POI を地名と区別できないので、別のディレクトリにしています。
 
+## ツール
+
+```
+https://kimkim0106.github.io/vrchat-osm-tiles/tools/ink-geojson/             ペンの線の取り出し
+```
+
+ワールドの設定タブレットの「書き出す」で出した GeoJSON (地図用のペンで書いた線) を、VRChat のログ (`output_log_*.txt`) か
+Unity の `Editor.log` から取り出すページです。ログはブラウザの中だけで読み、どこにも送りません。
+中身はリポジトリの `tools/ink-geojson/index.html` (ワールドのリポジトリの `Tools/InkExport/extract_ink_geojson.html` と同じもの) で、
+Actions が `tools/` をそのままサイトに写します。`tools/` を変えて main に push すると、地域は焼かずに配り直します。
+
 ## 焼いた地域は固定する
 
 ワールドは作るときに manifest の頂点数を焼き込みます。同じ URL の中身を焼き直すと、頂点が増えたタイルで三角形が欠けます
