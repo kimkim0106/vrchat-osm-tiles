@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ペンの線の取り出し</title>
+<!--
+  VRChat のログから、設定タブレットの「書き出す」で出した GeoJSON (地図用の QvPen で書いた線) を取り出す。
+  extract_ink_geojson.py の Web 版。ログはブラウザの中だけで読み、どこにも送らない (外部のスクリプトも読まない)。
+  配信リポジトリ (vrchat-osm-tiles) の tools/ink-geojson/index.html に同じものを置き、Pages で配る
+  (https://kimkim0106.github.io/vrchat-osm-tiles/tools/ink-geojson/)。変えたら両方そろえる。
+
+  VmtInkFollow.ExportInk は GeoJSON を 1 行 2000 字ほどに分けて、次の印つきでログに出す:
+      [VMT-GeoJSON] begin <id> <行数> <字数>
+      [VMT-GeoJSON] part <id> <番号> <中身>
+      [VMT-GeoJSON] end <id>
+-->
+<style>
+:root {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #efeee9;
+  --text: #1d1d1b;
+  --muted: #66645e;
+  --border: #d9d7d0;
+  --accent: #1f5fae;
+  --accent-text: #ffffff;
+  --accent-soft: #e3ecf8;
+  --ok: #2c7a3f;
+  --warn: #a2560a;
+  --warn-soft: #fbefe1;
+  --preview-bg: #e9e7e1;
+  --preview-grid: #d6d3cb;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615;
+    --surface: #1f1f1d;
+    --surface-2: #2a2a27;
+    --text: #ecebe6;
+    --muted: #a4a29a;
+    --border: #3a3935;
+    --accent: #6ea4ea;
+    --accent-text: #0e1724;
+    --accent-soft: #1d2a3b;
+    --ok: #74c487;
+    --warn: #e9a35a;
+    --warn-soft: #33261a;
+    --preview-bg: #2a2a27;
+    --preview-grid: #36352f;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615;
+  --surface: #1f1f1d;
+  --surface-2: #2a2a27;
+  --text: #ecebe6;
+  --muted: #a4a29a;
+  --border: #3a3935;
+  --accent: #6ea4ea;
+  --accent-text: #0e1724;
+  --accent-soft: #1d2a3b;
+  --ok: #74c487;
+  --warn: #e9a35a;
+  --warn-soft: #33261a;
+  --preview-bg: #2a2a27;
+  --preview-grid: #36352f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
+}
+main { max-width: 860px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: 0.02em; }
+.lead { color: var(--muted); margin: 0 0 20px; }
+h2 { font-size: 15px; margin: 28px 0 10px; }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+.drop {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 28px 16px;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0 0 14px; }
+.drop .hint { color: var(--muted); font-size: 13px; margin: 14px 0 0; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+
+button, .btn {
+  font: inherit; font-size: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+button:hover, .btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+input[type=file] { display: none; }
+
+details.paths { margin-top: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; }
+details.paths summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details.paths ul { margin: 8px 0 2px; padding-left: 20px; font-size: 14px; }
+details.paths li { margin: 4px 0; }
+
+.status { margin: 18px 0 0; font-size: 14px; color: var(--muted); min-height: 1.6em; }
+.status.error { color: var(--warn); }
+
+.file-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 26px 0 10px; }
+.file-head h2 { margin: 0; overflow-wrap: anywhere; }
+.file-head span { color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 14px;
+}
+.card.bad { grid-template-columns: 1fr; background: var(--warn-soft); border-color: transparent; }
+.preview {
+  width: 200px; height: 150px;
+  background: var(--preview-bg);
+  border-radius: 6px;
+  display: block;
+}
+.info { min-width: 0; }
+.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 4px; }
+.title-row strong { font-size: 16px; }
+.badge { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+.facts { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+.facts span + span::before { content: " · "; }
+.card .buttons { justify-content: flex-start; }
+.copied { color: var(--ok); font-size: 13px; align-self: center; }
+.bad .title-row strong { color: var(--warn); }
+
+.all-row { display: flex; justify-content: flex-end; margin: -2px 0 12px; }
+
+textarea {
+  width: 100%; min-height: 110px; resize: vertical;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+}
+.paste-row { display: flex; justify-content: flex-end; margin-top: 8px; }
+.foot { margin-top: 36px; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 560px) {
+  .card { grid-template-columns: 1fr; }
+  .preview { width: 100%; height: 180px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>ペンの線の取り出し</h1>
+  <p class="lead">VRChat のログから、設定タブレットの「書き出す」で出した GeoJSON (地図用のペンで書いた線) を取り出します。ログはこのページの中だけで読み、どこにも送りません。</p>
+
+  <div class="drop" id="drop">
+    <p>ログのファイルをここにドロップ</p>
+    <div class="buttons">
+      <button class="primary" id="pickFile" type="button">ファイルを選ぶ</button>
+      <button id="pickDir" type="button" hidden>フォルダから最新のログを読む</button>
+    </div>
+    <input type="file" id="fileInput" multiple accept=".txt,.log,text/plain">
+    <p class="hint">VRChat の <code>output_log_*.txt</code> か、Unity エディタの <code>Editor.log</code>。複数まとめて選べます。</p>
+  </div>
+
+  <details class="paths">
+    <summary>ログの場所</summary>
+    <ul>
+      <li>VRChat (PC): <code>%USERPROFILE%\AppData\LocalLow\VRChat\VRChat</code> (エクスプローラーのアドレス欄に貼ると開けます)</li>
+      <li>Unity エディタ (Windows): <code>%LOCALAPPDATA%\Unity\Editor\Editor.log</code></li>
+      <li>Unity エディタ (macOS): <code>~/Library/Logs/Unity/Editor.log</code> (Finder で ⇧⌘G に貼ると開けます)</li>
+      <li>Quest / Android ではログを取り出しにくいので、タブレットの欄からコピーしてください。</li>
+    </ul>
+  </details>
+
+  <p class="status" id="status" role="status"></p>
+  <div id="results"></div>
+
+  <h2>ログの一部を貼り付けて取り出す</h2>
+  <textarea id="pasteBox" placeholder="[VMT-GeoJSON] begin … から end … までを含むログの行" spellcheck="false"></textarea>
+  <div class="paste-row"><button id="pasteGo" type="button">取り出す</button></div>
+
+  <p class="foot">書き出したファイルは RFC 7946 の GeoJSON (WGS84 の [経度, 緯度]) なので、QGIS や geojson.io でそのまま開けます。タブレットの GeoJSON タブに貼ると床の地図にも重ねられます (5 万字まで)。</p>
+</main>
+
+<script>
+"use strict";
+
+const TAG = "[VMT-GeoJSON]";
+const LINE_RE = /\[VMT-GeoJSON\] (begin|part|end) (\S+)(?: (.*))?$/;
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status");
+const resultsEl = $("results");
+
+function setStatus(text, isError) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle("error", !!isError);
+}
+
+// ---------------------------------------------------------------- ログの解析 (extract_ink_geojson.py の find_exports と同じ)
+
+/** 行を 1 行ずつ渡して、書き出しを古い順に集める。 */
+function makeParser() {
+  const exports = [];   // { id, text, parts, chars }
+  const broken = [];    // { id, reason }
+  let cur = null;       // { id, parts, chars, got: Map }
+
+  function line(raw) {
+    if (raw.indexOf(TAG) < 0) return;
+    const m = LINE_RE.exec(raw.replace(/\r$/, ""));
+    if (!m) return;
+    const kind = m[1], id = m[2], rest = m[3] || "";
+    if (kind === "begin") {
+      if (cur) broken.push({ id: cur.id, reason: "end が無いまま次の書き出しが始まりました" });
+      const nums = rest.split(" ").slice(0, 2).map(Number);
+      if (nums.length < 2 || !nums.every(Number.isInteger)) { cur = null; return; }
+      cur = { id, parts: nums[0], chars: nums[1], got: new Map() };
+    } else if (kind === "part" && cur && id === cur.id) {
+      const sp = rest.indexOf(" ");
+      const num = sp < 0 ? rest : rest.slice(0, sp);
+      if (/^\d+$/.test(num)) cur.got.set(Number(num), sp < 0 ? "" : rest.slice(sp + 1));
+    } else if (kind === "end" && cur && id === cur.id) {
+      const c = cur;
+      cur = null;
+      if (c.got.size !== c.parts) {
+        broken.push({ id: c.id, reason: `${c.parts} 行のうち ${c.got.size} 行しかありません` });
+        return;
+      }
+      let text = "";
+      for (let i = 0; i < c.parts; i++) {
+        if (!c.got.has(i)) { broken.push({ id: c.id, reason: `${i} 行目がありません` }); return; }
+        text += c.got.get(i);
+      }
+      if (text.length !== c.chars) {
+        broken.push({ id: c.id, reason: `字数が合いません (${text.length} / ${c.chars})` });
+        return;
+      }
+      exports.push({ id: c.id, text, parts: c.parts, chars: c.chars });
+    }
+  }
+
+  function finish() {
+    if (cur) broken.push({ id: cur.id, reason: "ログが途中で終わっています (end がありません)" });
+    cur = null;
+    return { exports, broken };
+  }
+  return { line, finish };
+}
+
+/** ファイルを少しずつ読む (Editor.log は数百 MB になることがある)。 */
+async function parseFile(file, onProgress) {
+  const parser = makeParser();
+  const reader = file.stream().pipeThrough(new TextDecoderStream("utf-8")).getReader();
+  let carry = "", done = 0, lastReport = 0;
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    done += value.length;
+    const chunk = carry + value;
+    let start = 0, nl;
+    while ((nl = chunk.indexOf("\n", start)) >= 0) {
+      parser.line(chunk.slice(start, nl));
+      start = nl + 1;
+    }
+    carry = chunk.slice(start);
+    if (onProgress && done - lastReport > 4e6) { lastReport = done; onProgress(done); }
+  }
+  if (carry) parser.line(carry);
+  return parser.finish();
+}
+
+function parseText(text) {
+  const parser = makeParser();
+  for (const l of text.split("\n")) parser.line(l);
+  return parser.finish();
+}
+
+// ---------------------------------------------------------------- GeoJSON の中身
+
+function summarize(text) {
+  const data = JSON.parse(text);   // 壊れていたら呼び出し側で拾う
+  const feats = Array.isArray(data.features) ? data.features : [];
+  let lines = 0, points = 0;
+  const shapes = [];   // { color, width, opacity, coords: [[lon, lat], ...] } (線) / { color, point: [lon, lat] }
+  for (const f of feats) {
+    const g = f && f.geometry;
+    if (!g) continue;
+    const p = f.properties || {};
+    const color = typeof p.stroke === "string" ? p.stroke : "#1f5fae";
+    const opacity = typeof p["stroke-opacity"] === "number" ? p["stroke-opacity"] : 1;
+    const list = g.type === "LineString" ? [g.coordinates]
+               : g.type === "MultiLineString" ? g.coordinates : null;
+    if (list) {
+      for (const c of list) {
+        if (!Array.isArray(c)) continue;
+        lines++;
+        points += c.length;
+        shapes.push({ color, opacity, coords: c });
+      }
+    } else if (g.type === "Point") {
+      points++;
+      shapes.push({ color: p["marker-color"] || color, point: g.coordinates });
+    }
+  }
+  return { lines, points, shapes };
+}
+
+function bbox(shapes) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (c) => {
+    if (!Array.isArray(c) || typeof c[0] !== "number") return;
+    x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]);
+    y0 = Math.min(y0, c[1]); y1 = Math.max(y1, c[1]);
+  };
+  for (const s of shapes) s.point ? add(s.point) : s.coords.forEach(add);
+  return x0 <= x1 ? [x0, y0, x1, y1] : null;
+}
+
+/** 線をそのまま縮めて描く (地図は無し。経度は緯度の cos で縮める)。 */
+function previewSvg(shapes) {
+  const W = 200, H = 150, PAD = 10;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("class", "preview");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "線の形");
+  const b = bbox(shapes);
+  if (!b) return svg;
+  const k = Math.cos(((b[1] + b[3]) / 2) * Math.PI / 180);
+  const w = Math.max((b[2] - b[0]) * k, 1e-9), h = Math.max(b[3] - b[1], 1e-9);
+  const s = Math.min((W - 2 * PAD) / w, (H - 2 * PAD) / h);
+  const ox = (W - w * s) / 2, oy = (H - h * s) / 2;
+  const px = (c) => [ox + (c[0] - b[0]) * k * s, oy + (b[3] - c[1]) * s];
+
+  for (const sh of shapes) {
+    if (sh.point) {
+      const [x, y] = px(sh.point);
+      const dot = document.createElementNS(NS, "circle");
+      dot.setAttribute("cx", x.toFixed(1)); dot.setAttribute("cy", y.toFixed(1));
+      dot.setAttribute("r", "2.5"); dot.setAttribute("fill", sh.color);
+      svg.appendChild(dot);
+      continue;
+    }
+    const pts = sh.coords.filter((c) => Array.isArray(c) && typeof c[0] === "number").map(px);
+    if (!pts.length) continue;
+    if (pts.length === 1) pts.push(pts[0]);
+    const line = document.createElementNS(NS, "polyline");
+    line.setAttribute("points", pts.map(([x, y]) => x.toFixed(1) + "," + y.toFixed(1)).join(" "));
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", sh.color);
+    line.setAttribute("stroke-opacity", String(sh.opacity));
+    line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(line);
+  }
+  return svg;
+}
+
+// ---------------------------------------------------------------- 画面
+
+function fmt(n) { return n.toLocaleString("ja-JP"); }
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function stemOf(name) {
+  return name.replace(/\.[^.]*$/, "") || "ink";
+}
+
+function download(name, text) {
+  const blob = new Blob([text + "\n"], { type: "application/geo+json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function copyText(text, note) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  note.textContent = "コピーしました";
+  setTimeout(() => { note.textContent = ""; }, 2000);
+}
+
+function button(label, onClick, primary) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = label;
+  if (primary) b.className = "primary";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+/** 1 つのログの結果を出す (新しい書き出しを上に)。 */
+function renderFile(label, meta, result) {
+  const { exports, broken } = result;
+  const section = el("section");
+  const head = el("div", "file-head");
+  head.appendChild(el("h2", null, label));
+  head.appendChild(el("span", null, meta + ` · 書き出し ${exports.length} 件` + (broken.length ? ` · 壊れたもの ${broken.length} 件` : "")));
+  section.appendChild(head);
+
+  const stem = "ink";
+  const good = [];
+  exports.forEach((ex, i) => {
+    let sum;
+    try { sum = summarize(ex.text); }
+    catch (e) { broken.push({ id: ex.id, reason: "JSON として読めません (" + e.message + ")" }); return; }
+    good.push({ ex, sum, n: i + 1 });
+  });
+
+  if (good.length > 1) {
+    const row = el("div", "all-row");
+    row.appendChild(button(`${good.length} 件を全部ダウンロード`, () => {
+      good.forEach(({ ex, n }, i) => setTimeout(() => download(`${stem}_${n}.geojson`, ex.text), i * 300));
+    }));
+    section.appendChild(row);
+  }
+
+  good.slice().reverse().forEach(({ ex, sum, n }, idx) => {
+    const card = el("div", "card");
+    card.appendChild(previewSvg(sum.shapes));
+    const info = el("div", "info");
+    const title = el("div", "title-row");
+    title.appendChild(el("strong", null, `書き出し ${n}`));
+    if (idx === 0) title.appendChild(el("span", "badge", "最新"));
+    info.appendChild(title);
+    const facts = el("p", "facts");
+    facts.appendChild(el("span", null, `線 ${fmt(sum.lines)} 本`));
+    facts.appendChild(el("span", null, `点 ${fmt(sum.points)} 個`));
+    facts.appendChild(el("span", null, `${fmt(ex.chars)} 字`));
+    facts.appendChild(el("span", "mono", `id ${ex.id}`));
+    info.appendChild(facts);
+    const btns = el("div", "buttons");
+    const note = el("span", "copied");
+    const name = good.length > 1 ? `${stem}_${n}.geojson` : `${stem}.geojson`;
+    btns.appendChild(button("ダウンロード", () => download(name, ex.text), true));
+    btns.appendChild(button("コピー", () => copyText(ex.text, note)));
+    btns.appendChild(note);
+    info.appendChild(btns);
+    card.appendChild(info);
+    section.appendChild(card);
+  });
+
+  for (const b of broken) {
+    const card = el("div", "card bad");
+    const info = el("div", "info");
+    const title = el("div", "title-row");
+    title.appendChild(el("strong", null, "取り出せなかった書き出し"));
+    title.appendChild(el("span", "mono", `id ${b.id}`));
+    info.appendChild(title);
+    info.appendChild(el("p", "facts", b.reason));
+    card.appendChild(info);
+    section.appendChild(card);
+  }
+
+  if (!exports.length && !broken.length) {
+    section.appendChild(el("p", "facts", `このログに書き出し (${TAG}) はありません。タブレットの「GeoJSON」タブ →「書き出す」を押したときのログか確かめてください。`));
+  }
+  return { section, count: good.length };
+}
+
+async function handleFiles(files) {
+  files = Array.from(files);
+  if (!files.length) return;
+  resultsEl.textContent = "";
+  let total = 0;
+  for (const f of files) {
+    setStatus(`${f.name} を読んでいます…`);
+    let result;
+    try {
+      result = await parseFile(f, (done) => setStatus(`${f.name} を読んでいます… ${Math.round(done / Math.max(f.size, 1) * 100)}%`));
+    } catch (e) {
+      setStatus(`${f.name} を読めませんでした: ${e.message}`, true);
+      continue;
+    }
+    const meta = fmtSize(f.size) + (f.lastModified ? " · " + new Date(f.lastModified).toLocaleString("ja-JP") : "");
+    const { section, count } = renderFile(f.name, meta, result);
+    total += count;
+    resultsEl.appendChild(section);
+  }
+  setStatus(total ? `書き出しを ${total} 件見つけました。` : "書き出しが見つかりませんでした。", !total);
+}
+
+// ---------------------------------------------------------------- 入口
+
+const fileInput = $("fileInput");
+$("pickFile").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { handleFiles(fileInput.files); fileInput.value = ""; });
+
+const drop = $("drop");
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
+// ドロップ先を外したときにブラウザがファイルを開いてしまわないように
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+
+// Chrome / Edge: フォルダを選ぶと、いちばん新しい output_log_*.txt / Editor.log を読む
+if (window.showDirectoryPicker) {
+  const pickDir = $("pickDir");
+  pickDir.hidden = false;
+  pickDir.addEventListener("click", async () => {
+    let dir;
+    try { dir = await window.showDirectoryPicker({ id: "vrchat-log", mode: "read" }); }
+    catch { return; }   // 取り消し
+    const cands = [];
+    for await (const [name, h] of dir.entries()) {
+      if (h.kind !== "file") continue;
+      if (/^output_log_.*\.txt$/i.test(name) || /^Editor\.log$/i.test(name)) cands.push(await h.getFile());
+    }
+    if (!cands.length) {
+      setStatus(`${dir.name} に output_log_*.txt も Editor.log もありません。`, true);
+      return;
+    }
+    cands.sort((a, b) => b.lastModified - a.lastModified);
+    handleFiles([cands[0]]);
+  });
+}
+
+$("pasteGo").addEventListener("click", () => {
+  const text = $("pasteBox").value;
+  if (!text.trim()) return;
+  resultsEl.textContent = "";
+  const { section, count } = renderFile("貼り付けたログ", fmt(text.length) + " 字", parseText(text));
+  resultsEl.appendChild(section);
+  setStatus(count ? `書き出しを ${count} 件見つけました。` : "書き出しが見つかりませんでした。", !count);
+});
+</script>
+</body>
+</html>
