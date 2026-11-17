@@ -389,8 +389,13 @@ def dist_dirs(site):
     return [name for _, name in sorted(found)]
 
 
-def write_indexes(site):
-    """置いてある地域 (region.json) から、版ごとの index.json と全体の index.html を作る。"""
+TOOLS_LINK = ('<p>ツール: <a href="tools/ink-geojson/">ペンの線の取り出し</a> '
+              '(VRChat のログから、設定タブレットで書き出した GeoJSON を取り出す)。</p>')
+
+
+def write_indexes(site, tools=False):
+    """置いてある地域 (region.json) から、版ごとの index.json と全体の index.html を作る。
+    tools なら index.html にツール (site/tools/。Actions が Pages の site/ にだけ写す) へのリンクを出す。"""
     generated = now()
     sections = []
     total = 0
@@ -434,7 +439,7 @@ table{{border-collapse:collapse}}td,th{{border-bottom:1px solid #ccc;padding:.25
 {chr(10).join(blocks)}
 <p>地図データ: {html.escape(" / ".join(sorted(attributions)) or "© OpenStreetMap contributors")}
 (<a href="https://www.openstreetmap.org/copyright">ODbL</a>)。文字: Noto Sans CJK (SIL Open Font License 1.1)。</p>
-<p>ツール: <a href="tools/ink-geojson/">ペンの線の取り出し</a> (VRChat のログから、設定タブレットで書き出した GeoJSON を取り出す)。</p>
+{TOOLS_LINK if tools else ""}
 {"<p>広域の地図の地名: " + html.escape(" / ".join(sorted(label_attributions))) + " (CC BY 4.0)。</p>" if label_attributions else ""}
 <p>生成: {generated}</p>
 </body></html>
@@ -506,7 +511,7 @@ def main():
             bin_groups(args.site, args.r2, regions, args.bin_groups)
         r2_total = write_indexes(args.r2)
         print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
-    total = write_indexes(args.site)
+    total = write_indexes(args.site, tools=True)
     print(f"site total {total / 1e6:.1f} MB -> {args.site}")
     # 容量は Pages に載せる形 (--prune / --r2 の後) で確かめる。焼いた直後の site/ には配らない版や R2 の地域も入っている
     if args.index_only and total > SITE_LIMIT:
