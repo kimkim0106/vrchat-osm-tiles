@@ -12,6 +12,8 @@
   site/v2/<name>/sheets/z/k.png       シート (複数タイル = 1 画像)。v1 のタイルをまとめたもので、中身は同じ
   site/v2/<name>/sheets/z/k.bin       同じシートの生データ (regions.json の binZooms のズームだけ)
   site/v3/<name>/...                  v2 と同じ並び。POI (駅・観光地・店など) 入りのタイルをまとめたシート
+  site/v4/<name>/manifest.json        床が読む manifest (範囲のタイルを全部並べ、シートは持ち主の own/ の絶対 URL で指す)
+  site/v4/<name>/own/...              その地域が持ち主のタイルだけのシート (形式 2)。vmt_v4.py の冒頭
 
 v1 / v2 は VMT-DT の形式の版 (manifest の version、テクスチャのヘッダ列 1) と同じ番号。
 ワールドが焼き込む URL に入るので、読み方の変わる変更は版を上げて別のディレクトリに出し、古い版も配り続ける。
@@ -21,6 +23,14 @@ v3 は POI 入りで焼いたタイル (配らない。work/poi/ に置いてす
 manifest の version は 2 (シートの並び) のままで、labelCategories (ラベルの種類の一覧) が付く。
 ラベル頂点の T3.B に種類の番号が入るので、種類ごとの色分けと出し入れ (_LabelMask) のできるシェーダーで読む。
 v3 は v1 とは別に焼く (同じ MBTiles から。--poi)。
+v4 はタイルの形式 2 (vmt_bake.py --tile-format 2 --glyphs glyphs_v4.txt --langs ja,en。ラベルの字の形はタイルに持たず、
+ワールドが実行時に作る共有の字のアトラスから Unicode の文字コードで引く。日本語と英語の塊。広域の地図は日本語だけ) の POI 入りのシート。
+地域をまたいで同じタイルを 1 回だけ焼いて 1 か所に置く (焼き方と置き方は vmt_v4.py。build_site.py は MBTiles と、
+まとめた .bin と索引だけを受け持つ)。manifest の version は 2 (シートの並び) のままで、tileFormat 2・labelLanguages・
+glyphSet (焼くときに使った字の一覧の字数と SHA-1)・sharedGlyphs (タイルが文字コードで指す字) が付く。
+glyphs_v4.txt はワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じものにする)。これに無い字はタイルのアトラスに入れる。
+タイルは文字コードで持つので並びの順番には縛られないが、ワールドが持っていない字を共有の字として焼くと、その字は出ない
+(ワールドは床を作るときに sharedGlyphs を全部持っているか照合する)。
 
 焼いた地域は固定する。ワールドは作るときに manifest の頂点数を焼き込むので、同じ URL の中身を焼き直すと
 頂点が増えたタイルで三角形が欠ける。Actions は焼いた地域を Release (タグ = 版) に保存し、次からはそれを戻して配る。
@@ -36,7 +46,7 @@ v3 は v1 とは別に焼く (同じ MBTiles から。--poi)。
 
 regions.json の地域に "dists": ["v2"] があれば、その版だけを配る (--prune が他の版のディレクトリを site/ から外す)。
 v2 は v1 から作るので v1 も焼いて Release には保存するが、Pages には載せない (サイトの容量を空けるため)。
-v3 は dists に v3 がある地域 (dists が無ければすべて) だけ焼く (wants_dist)。
+v3 / v4 は dists か releaseOnly にその版がある地域 (dists が無ければすべて) だけ焼く (wants_dist)。
 "releaseOnly": ["v3"] の版は、焼いて Release に保存するが配らない (--prune が外す)。
 配る前に確かめたいとき (R2 の v3 など) に使い、確かめたら dists に移す (Release から戻して配る。焼き直さない)。
 
@@ -50,7 +60,7 @@ regions.json の地域に "binGroups": {"dists": ["v3"], "zooms": [13, 14]} が�
 Pages は容量を生の大きさで数えるので入らない)。String Loading で 1 回に数枚取れるので、床の取得が速くなる。
 R2 を読めない人 (「Allow Untrusted URLs」がオフ) は、床が 2 回失敗した後でシートごとの取得に戻る。
 
-regions.json の地域に "wide": true があれば広域の地図 (日本全体と地方ごと。wide_regions.py が書く)。v3 だけを作る。
+regions.json の地域に "wide": true があれば広域の地図 (日本全体と地方ごと。wide_regions.py が書く)。v3 と v4 だけを作る。
   "wideLabels": 地名の点 (wide_labels.py が国土数値情報から作った labels/wide_japan.json)。OpenStreetMap の地名と POI の代わり
   "boundaryLevels": 境界線はこの admin_level の陸上の線だけ (都道府県境 = [4])
   "labelVerts": 1 タイルのラベル頂点の上限 (Unity の地名の入れ物の最大と合わせる)
@@ -77,9 +87,22 @@ DIST = f"v{FORMAT_VERSION}"    # 焼いたタイルを置くディレクトリ
 SHEET_VERSION = 2              # vmt_pack.py の SHEET_VERSION
 SHEET_DIST = f"v{SHEET_VERSION}"
 POI_DIST = "v3"                # POI 入りのシート (形式は v2 と同じ。manifest の version も 2)
-DISTS = [DIST, SHEET_DIST, POI_DIST]  # 配る版 (check_site.py が確かめる)
+GLYPH_DIST = "v4"              # タイルの形式 2 (共有の字のアトラス) の POI 入りのシート。manifest の version は 2
+GLYPH_TILE_FORMAT = 2          # vmt_bake.py --tile-format (manifest の tileFormat で確かめる)
+GLYPH_FILE = "glyphs_v4.txt"   # ワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じもの)
+GLYPH_LANGS = "ja,en"          # ラベルの言語の塊 (広域の地図は vmt_bake.py が ja だけにする)
+DISTS = [DIST, SHEET_DIST, POI_DIST, GLYPH_DIST]  # 配る版 (check_site.py が確かめる)
+SHEET_DISTS = (SHEET_DIST, POI_DIST, GLYPH_DIST)  # シートの版 (binGroups を作れる版)
+WIDE_DISTS = (POI_DIST, GLYPH_DIST)               # 広域の地図で作れる版
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
 HOSTS = ("pages", "r2")        # regions.json の host (書かなければ pages)
+
+
+def default_pages_url():
+    """Actions では GITHUB_REPOSITORY から、手元では配信中の URL。"""
+    repo = os.environ.get("GITHUB_REPOSITORY", "kimkim0106/vrchat-osm-tiles")
+    owner, name = repo.split("/", 1)
+    return f"https://{owner.lower()}.github.io/{name}/"
 
 
 def now():
@@ -209,6 +232,8 @@ def region_entry(region, manifest):
         "images": len(manifest.get("sheets") or manifest["tiles"]),
         "attribution": manifest.get("attribution", ""),
         "labelAttribution": manifest.get("labelAttribution", []),
+        "tileFormat": manifest.get("tileFormat", 1),
+        "labelLanguages": manifest.get("labelLanguages") or [manifest.get("labelConfig", {}).get("lang") or "ja"],
         "built": now(),
         "commit": os.environ.get("GITHUB_SHA", ""),
     }
@@ -249,8 +274,9 @@ def validate_regions(regions):
         if r.get("host", "pages") not in HOSTS:
             sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
         if r.get("wide"):
-            if set(dists or []) | set(only) != {POI_DIST}:
-                sys.exit(f"{r['name']}: 広域の地図 (wide) は {POI_DIST} だけを作る (dists か releaseOnly に {POI_DIST} だけ)")
+            made = set(dists or []) | set(only)
+            if not made or made - set(WIDE_DISTS):
+                sys.exit(f"{r['name']}: 広域の地図 (wide) は {' / '.join(WIDE_DISTS)} だけを作る (dists か releaseOnly にこのどれか)")
             labels = r.get("wideLabels")
             if not labels or not os.path.exists(os.path.join(HERE, labels)):
                 sys.exit(f"{r['name']}: wideLabels のファイルが無い ({labels})")
@@ -259,12 +285,26 @@ def validate_regions(regions):
                 sys.exit(f"{r['name']}: labelVerts は 90 の倍数")
         groups = r.get("binGroups")
         if groups is not None:
-            if set(groups) != {"dists", "zooms"} or set(groups["dists"]) - {SHEET_DIST, POI_DIST} or not groups["zooms"]:
+            if set(groups) != {"dists", "zooms"} or set(groups["dists"]) - set(SHEET_DISTS) or not groups["zooms"]:
                 sys.exit(f"{r['name']}: binGroups は {{\"dists\": [シートの版], \"zooms\": [ズーム]}}")
+    import vmt_v4  # v4 の作り方がズームごとにそろっているか
+    vmt_v4.validate(regions)
 
 
-def bake_tiles(region, mbtiles, tools, out, jobs, poi):
-    """vmt_bake.py で out に焼き、manifest を返す。poi が False なら POI を入れない (v1)。"""
+def glyph_set():
+    """glyphs_v4.txt の字数と SHA-1 (vmt_bake.py が manifest の glyphSet に書くものと同じ求め方)。"""
+    import hashlib
+    with open(os.path.join(HERE, GLYPH_FILE), encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    chars = "".join(lines)
+    return {"file": GLYPH_FILE, "count": len(chars), "sha1": hashlib.sha1(chars.encode("utf-8")).hexdigest()}
+
+
+def bake_tiles(region, mbtiles, tools, out, jobs, poi, glyph=False, extra=()):
+    """vmt_bake.py で out に焼き、manifest を返す。poi が False なら POI を入れない (v1)。
+    glyph ならタイルの形式 2 (共有の字のアトラスの字を文字コードで持つ。v4) で焼く。extra は vmt_bake.py に足す引数。"""
     if os.path.exists(out):
         shutil.rmtree(out)
     cmd = [sys.executable, os.path.join(HERE, "vmt_bake.py"), mbtiles, out,
@@ -272,6 +312,8 @@ def bake_tiles(region, mbtiles, tools, out, jobs, poi):
            "--font", os.path.join(tools, "NotoSansCJK-Regular.ttc"), "--no-bin", "--jobs", str(jobs)]
     if region.get("lang"):
         cmd += ["--lang", region["lang"]]
+    if glyph:
+        cmd += ["--tile-format", str(GLYPH_TILE_FORMAT), "--glyphs", os.path.join(HERE, GLYPH_FILE), "--langs", GLYPH_LANGS]
     if not poi:
         cmd.append("--no-poi")
     if region.get("wideLabels"):
@@ -280,7 +322,7 @@ def bake_tiles(region, mbtiles, tools, out, jobs, poi):
         cmd += ["--boundary-levels", ",".join(str(v) for v in region["boundaryLevels"])]
     if region.get("labelVerts"):
         cmd += ["--label-verts", str(region["labelVerts"])]
-    run(cmd)
+    run(cmd + list(extra))
     shutil.rmtree(os.path.join(out, "_parts"), ignore_errors=True)
     with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
         m = json.load(f)
@@ -290,6 +332,13 @@ def bake_tiles(region, mbtiles, tools, out, jobs, poi):
         json.dump(m, f, ensure_ascii=False, indent=1)
     if m.get("version") != FORMAT_VERSION:
         sys.exit(f"{region['name']}: manifest の version {m.get('version')} が {FORMAT_VERSION} と違う")
+    if glyph:
+        if m.get("tileFormat") != GLYPH_TILE_FORMAT:
+            sys.exit(f"{region['name']}: manifest の tileFormat {m.get('tileFormat')} が {GLYPH_TILE_FORMAT} と違う")
+        if m.get("glyphSet") != glyph_set():
+            sys.exit(f"{region['name']}: manifest の glyphSet {m.get('glyphSet')} が {GLYPH_FILE} と違う")
+    elif m.get("tileFormat", 1) != 1:
+        sys.exit(f"{region['name']}: 形式 1 で焼いたのに tileFormat {m.get('tileFormat')}")
     return m
 
 
@@ -318,6 +367,10 @@ def pack_dir(region, src, out):
         m = json.load(f)
     if m.get("version") != SHEET_VERSION:
         sys.exit(f"{region['name']}: {out} の manifest の version が {SHEET_VERSION} ではない")
+    src_m = json.load(open(os.path.join(src, "manifest.json"), encoding="utf-8"))
+    for key in ("tileFormat", "labelLanguages", "glyphSet"):
+        if src_m.get(key) != m.get(key):
+            sys.exit(f"{region['name']}: vmt_pack.py が manifest の {key} を通さなかった")
     write_region_json(out, region_entry(region, m))
 
 
@@ -347,6 +400,15 @@ def move_r2(site, r2, regions):
     if os.path.exists(r2):
         shutil.rmtree(r2)
     os.makedirs(r2)
+    # regions.json から消した v4 の地域は、持ち物の manifest に残した定義 (sourceRegion) の host で決める
+    known = {r["name"] for r in regions}
+    for path in glob.glob(os.path.join(site, GLYPH_DIST, "*", "own", "manifest.json")):
+        name = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        if name not in known:
+            with open(path, encoding="utf-8") as f:
+                src = json.load(f).get("sourceRegion")
+            if src:
+                regions = regions + [src]
     for r in regions:
         if r.get("host", "pages") != "r2":
             continue
@@ -370,13 +432,18 @@ def bin_groups(site, r2, regions, base_url):
         if not cfg:
             continue
         for dist in cfg["dists"]:
-            src = next((os.path.join(root, dist, r["name"]) for root in (site, r2)
-                        if os.path.exists(os.path.join(root, dist, r["name"], "manifest.json"))), None)
+            # v4 はその地域が持ち主のシート (own/) をまとめる (床の manifest は後で vmt_v4.assemble が作る)
+            sub = f"{r['name']}/own" if dist == GLYPH_DIST else r["name"]
+            src = next((os.path.join(root, dist, sub) for root in (site, r2)
+                        if os.path.exists(os.path.join(root, dist, sub, "manifest.json"))), None)
             if src is None:
                 continue  # その版を配っていない (releaseOnly など)
+            with open(os.path.join(src, "manifest.json"), encoding="utf-8") as f:
+                if not json.load(f)["sheets"]:
+                    continue  # 持ち物が無い
             run([sys.executable, os.path.join(HERE, "vmt_bingroup.py"), src,
                  "--zooms", ",".join(str(z) for z in cfg["zooms"]),
-                 "--base-url", f"{base_url}{dist}/{r['name']}/", "--bins", os.path.join(r2, dist, r["name"])])
+                 "--base-url", f"{base_url}{dist}/{sub}/", "--bins", os.path.join(r2, dist, sub)])
 
 
 def dist_dirs(site):
@@ -459,6 +526,8 @@ def main():
     ap.add_argument("--java-mem", default="8g")
     ap.add_argument("--only", action="append", help="この名前の地域だけ焼く (複数可)")
     ap.add_argument("--poi", action="store_true", help="v1 の代わりに v3 (POI 入りのシート) を焼く")
+    ap.add_argument("--pages-url", default=default_pages_url(),
+                    help="Pages の公開 URL (v4 の床の manifest がシートを絶対 URL で指すため)")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。planetiler を回さずこの MBTiles を使う")
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
     ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
@@ -509,6 +578,10 @@ def main():
         move_r2(args.site, args.r2, regions)
         if args.bin_groups:
             bin_groups(args.site, args.r2, regions, args.bin_groups)
+    if args.index_only or args.r2:
+        import vmt_v4
+        vmt_v4.assemble(regions, args.site, args.r2, args.pages_url, args.bin_groups)
+    if args.r2:
         r2_total = write_indexes(args.r2)
         print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
     total = write_indexes(args.site, tools=True)

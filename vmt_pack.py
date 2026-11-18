@@ -80,7 +80,8 @@ def plan_sheets(manifest):
     sheets = []
     for lv in manifest["levels"]:
         groups = {}
-        for i in range(lv["offset"], lv["offset"] + lv["w"] * lv["h"]):
+        # そのズームのタイル (範囲の一部だけのこともある。VMT-DT v4 は持ち主の地域が持つタイルだけを焼く)
+        for i in (i for i, t in enumerate(tiles) if t["z"] == lv["z"]):
             t = tiles[i]
             if t["height"] > SHEET_CAPACITY:
                 sys.exit(f"タイル {i} の高さ {t['height']} がシートに入らない")

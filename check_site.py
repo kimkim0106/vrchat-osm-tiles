@@ -71,13 +71,16 @@ def check_dist(base, version):
         if "sheets" not in manifest:
             for lv in manifest["levels"]:
                 picks.add(lv["offset"])
+        def url_of(path):
+            return path if path.startswith("https://") else root + path  # v4 はほかの地域の own/ を絶対 URL で指す
+
         for i in sorted(picks):
-            url = root + images[i]["png"]
+            url = url_of(images[i]["png"])
             check(url, "HEAD", "image/png", 6)
             print(f"OK {url}")
         bins = [s for s in manifest.get("sheets") or [] if s.get("bin")]
         for s in bins[:1] + bins[-1:]:
-            url = root + s["bin"]
+            url = url_of(s["bin"])
             check(url, "HEAD", "application/octet-stream", 6)
             print(f"OK {url}")
         # まとめた .bin (vmt_bingroup.py。Pages の地域でも R2 に置く)
