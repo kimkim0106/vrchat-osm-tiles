@@ -14,6 +14,10 @@ binGroups の .bin が R2 に無ければ、それだけ上げる (まとめ方�
 Pages から R2 に移した地域 (神戸・徳島、2026-11-17) は、R2 に manifest.json とまとめた .bin だけがあり、シートが無い。
 DIR にその地域の画像があり、R2 に無ければ、R2 にある manifest.json に関係なく全部を上げる (images_missing)。
 
+v4 (vmt_v4.py) の地域は DIR/v4/<地域>/own/ (その地域が持ち主のシートと、まとめた .bin) を 1 つの地域と同じに扱い
+(own/manifest.json が「上げ終わった」印)、地域の直下の manifest.json (床が読む。ほかの地域の own/ を絶対 URL で指す) と
+region.json は、すべての own/ を上げた後で毎回上げる (配るたびに作り直すもの。中身は持ち主のタイルが変わらない限り同じ)。
+
 圧縮: .bin (RGB24 の生データ) と .json / .html は gzip にして Content-Encoding: gzip を付けて置く。
 PNG はもともと圧縮してあるのでそのまま。Pages も .bin を gzip で返している (UnityWebRequest は自分で展開する)。
 
@@ -106,12 +110,16 @@ def main():
             ddir = os.path.join(args.dir, dist)
             if not os.path.isdir(ddir):
                 continue
+            floors = []  # v4 の床の manifest (own/ を全部上げた後で上げる)
             for name in sorted(os.listdir(ddir)):
                 rdir = os.path.join(ddir, name)
                 if not os.path.isdir(rdir):
                     continue
                 prefix = f"{dist}/{name}/"
                 sdir = os.path.join(staged, dist, name)
+                if os.path.isdir(os.path.join(rdir, "own")):
+                    floors.append((rdir, sdir, prefix))
+                    rdir, sdir, prefix = os.path.join(rdir, "own"), os.path.join(sdir, "own"), prefix + "own/"
                 if name in force or f"{dist}/{name}" in force or not exists(bucket, prefix + "manifest.json") \
                         or images_missing(rdir, bucket, prefix):
                     print(f"{prefix}: 上げる")
@@ -128,6 +136,14 @@ def main():
                 else:
                     print(f"{prefix}: R2 にある (上げない)")
                 shutil.rmtree(sdir, ignore_errors=True)
+            for rdir, sdir, prefix in floors:
+                if os.path.exists(os.path.join(rdir, "manifest.json")):  # Pages の地域はまとめた .bin (own/) だけ
+                    print(f"{prefix}: 床の manifest を上げる")
+                    for name in ("region.json", "manifest.json"):
+                        if os.path.exists(os.path.join(rdir, name)):
+                            stage_file(os.path.join(rdir, name), os.path.join(sdir, name))
+                    put_jsons(sdir, bucket, prefix)
+                    shutil.rmtree(sdir, ignore_errors=True)
             index = os.path.join(ddir, "index.json")
             if os.path.exists(index):
                 stage_file(index, os.path.join(staged, dist, "index.json"))

@@ -6,10 +6,14 @@
   - ズームごとの作り方: z7〜z11 (WIDE_MAX_ZOOM まで) は広域の作り方 (地名は国土数値情報の点、境界は県境だけ、日本語だけ)、
     z12 から上は都市の作り方 (OpenStreetMap の地名と POI、日本語と英語)。今は広域の地域が z7〜z11、都市の地域が z13・z14
     (CITY_ZOOMS。床が読むズームだけ) なので、地域の種類とズームが一致する (validate が確かめる)。
-  - 持ち主: タイルを範囲に含む地域を (1) Release (v4) にある地域が先、(2) その中で Pages の地域 ("host" が r2 でない) が先、
-    (3) regions.json の並び、の順に並べた最初の地域が持ち主。持ち主だけがそのタイルを焼いて置く (<持ち主>/own/)。
-    Release にある地域の持ち物は変わらないので、地域を足しても焼いたタイルは変わらない。Pages を先にするのは、
-    信頼済みのドメインで読める地域 (東京) の床が、R2 (「Allow Untrusted URLs」が要る) のシートを指さないようにするため。
+  - 持ち主: 焼いた地域は、焼いたタイルの一覧 (持ち物の一覧。Release の <地域>.own.json.gz) を残す。一覧にあるタイルは
+    その地域が持ち主 (焼き直すときも同じタイルを焼く)。どの一覧にも無いタイルは、範囲に含む一覧の無い地域を
+    (1) Pages の地域 ("host" が r2 でない) が先、(2) regions.json の並び、の順に並べた最初の地域が持ち主。
+    持ち主だけがそのタイルを焼いて置く (<持ち主>/own/)。焼いた地域の持ち物は変わらないので、地域を足しても、
+    一部の地域だけ焼けて実行し直しても、焼いたタイルは変わらない (Release に地域があるかで決めると、焼けなかった地域の
+    分を焼いた隣の地域の持ち物とみなして穴が空く。Codex のレビューで指摘)。
+    Pages を先にするのは、信頼済みのドメインで読める地域 (東京) の床が、R2 (「Allow Untrusted URLs」が要る) の
+    シートを指さないようにするため。
   - ラベル: 持ち主の境目で重ならないよう、地域をまたいでズームごとにまとめて置く。手順は 3 段:
       candidates  地域ごとに、持ち物のタイルのラベルの候補を MBTiles から集める (並行)
       labels      この実行で焼く地域の候補をすべて合わせて置く (1 回)。Release にある地域の置いたラベル (<地域>.labels.json.gz)
@@ -27,7 +31,9 @@
   python vmt_v4.py labels --cands work/v4/cands --out work/v4/plans
   python vmt_v4.py bake --region tokyo --mbtiles tokyo=MapData/tokyo.mbtiles --plans work/v4/plans --site site --tools TOOLS
   (配る索引は build_site.py --index-only が作る (中で assemble を呼ぶ))
---released には、Release (v4) にある地域 (カンマ区切り) を渡す。Actions は plan job で取った一覧を、どの段にも同じものを渡す。
+--inventory には、焼いた地域の持ち物の一覧をまとめたもの ({地域: [[z, x, y], ...]}、inventory コマンドが Release の
+<地域>.own.json.gz から作る) を渡す。Actions は plan job で作ったものを、どの段にも同じものを渡す。無ければ、まだ焼いた地域が無い。
+地域の定義 (regions.json の 1 件) は own/manifest.json の sourceRegion に残す (regions.json から消した地域の床の manifest も作れるように)。
 """
 import argparse
 import glob
@@ -117,25 +123,36 @@ def validate(regions):
                      f"(同じタイルをどの地域が焼いても同じ中身にするため)")
 
 
-def owners(regions, released):
-    """{(z, x, y): 持ち主の地域の名前}。Release にある地域 → 無い地域、それぞれ Pages → R2、regions.json の並びの順で最初に含む地域。"""
-    rs = v4_regions(regions)
-    order = sorted(rs, key=lambda r: (r["name"] not in released, r.get("host", "pages") == "r2"))  # 安定なので並びは保つ
+def owners(regions, inventory):
+    """{(z, x, y): 持ち主の地域の名前}。持ち物の一覧にあるタイルはその地域。残りは、一覧の無い地域を Pages → R2、
+    regions.json の並びの順に並べて最初に含む地域。"""
     out = {}
-    for r in order:
+    for name, tiles in sorted(inventory.items()):
+        for t in tiles:
+            t = tuple(t)
+            if t in out:
+                sys.exit(f"v4 のタイル {t} が {out[t]} と {name} の両方の持ち物の一覧にある")
+            out[t] = name
+    rs = [r for r in v4_regions(regions) if r["name"] not in inventory]
+    for r in sorted(rs, key=lambda r: r.get("host", "pages") == "r2"):  # 安定なので並びは保つ
         for t in tiles_of(r):
             out.setdefault(t, r["name"])
     return out
 
 
-def owned(regions, released, name):
-    own = owners(regions, released)
+def owned(regions, inventory, name):
+    if name in inventory:
+        return sorted((tuple(t) for t in inventory[name]), key=lambda t: (t[0], t[2], t[1]))
+    own = owners(regions, inventory)
     region = next(r for r in regions if r["name"] == name)
     return [t for t in tiles_of(region) if own[t] == name]
 
 
-def parse_released(s):
-    return {v.strip() for v in (s or "").split(",") if v.strip()}
+def load_inventory(path):
+    if not path or not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def load_regions(path):
@@ -212,13 +229,13 @@ def candidates(region, mbtiles, tiles):
 LABEL_FIELDS = ("name", "x", "y", "size", "margin", "cat", "pri", "rank", "kmin", "kmax")
 
 
-def place_all(regions, released, cand_files, frozen_files, tools):
+def place_all(regions, inventory, cand_files, frozen_files, tools):
     """
     候補をすべて合わせてズーム・言語ごとに置き、{地域: {"z/x/y": [言語ごとのラベルのリスト]}} を返す (この実行で焼く地域の分)。
     frozen_files は Release にある地域の置いたラベル (同じ形)。動かさず、先に置いてあるものとして扱う。
     """
     vb = _vb()
-    own = owners(regions, released)
+    own = owners(regions, inventory)
     by_name = {r["name"]: r for r in regions}
     groups = {}   # (wide, z, 言語の番号) -> [候補]
     baking = set()
@@ -277,10 +294,10 @@ def place_all(regions, released, cand_files, frozen_files, tools):
 
 # ---------------------------------------------------------------- 3. 焼く
 
-def bake(region, regions, released, mbtiles, plan_path, site, tools, work, jobs):
-    """持ち物のタイルを焼いて site/v4/<地域>/own/ にまとめる。"""
+def bake(region, regions, inventory, mbtiles, plan_path, site, tools, work, jobs):
+    """持ち物のタイルを焼いて site/v4/<地域>/own/ にまとめ、持ち物の一覧 (<地域>.own.json.gz の中身) を返す。"""
     name = region["name"]
-    tiles = owned(regions, released, name)
+    tiles = owned(regions, inventory, name)
     out_dir = os.path.join(site, DIST, name)
     own_dir = os.path.join(out_dir, "own")
     if os.path.exists(out_dir):
@@ -311,8 +328,16 @@ def bake(region, regions, released, mbtiles, plan_path, site, tools, work, jobs)
         with open(os.path.join(own_dir, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump({"format": b.FORMAT, "version": b.SHEET_VERSION, "tiles": [], "sheets": [], "levels": levels_of(region),
                        "glyphSet": b.glyph_set()}, f, ensure_ascii=False, indent=1)
+    # 地域の定義を残す (regions.json から消しても、床の manifest を作り続けられるように)
+    path = os.path.join(own_dir, "manifest.json")
+    with open(path, encoding="utf-8") as f:
+        m = json.load(f)
+    m["sourceRegion"] = region
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(m, f, ensure_ascii=False, indent=1)
     dump_gz(os.path.join(own_dir, "labels.json.gz"), plan)
     print(f"{name}: v4 の持ち物 {len(tiles)} タイル (範囲 {len(tiles_of(region))}) -> {own_dir}", flush=True)
+    return {"region": name, "tiles": [list(t) for t in tiles]}
 
 
 # ---------------------------------------------------------------- 4. 床が読む manifest
@@ -330,7 +355,10 @@ def own_dirs(regions, site, r2):
             found.setdefault(os.path.basename(os.path.dirname(d)), {})[host] = d
     out = {}
     for name, where in found.items():
-        host = hosts.get(name) or ("pages" if os.path.isdir(os.path.join(where.get("pages", ""), "sheets")) else "r2")
+        host = hosts.get(name)
+        if host is None:  # regions.json から消した地域は、残した定義の host
+            with open(os.path.join(next(iter(where.values())), "manifest.json"), encoding="utf-8") as f:
+                host = (json.load(f).get("sourceRegion") or {}).get("host", "pages")
         if host not in where:
             sys.exit(f"{name}: v4 の持ち物が {host} の側に無い")
         out[name] = (host, where[host])
@@ -360,10 +388,10 @@ def assemble(regions, site, r2, pages_url, r2_url):
                 sys.exit(f"v4 のタイル {k} を {where[k][0]} と {name} の両方が持っている")
             where[k] = (name, i)
     for name, (host, d) in dirs.items():
-        r = by_name.get(name)
+        # regions.json から消した地域も、残した定義で床の manifest を作り続ける (公開済みのワールドが読む)
+        r = by_name.get(name) or batches[name][0].get("sourceRegion")
         if r is None:
-            # regions.json から消した地域も、持ち物は配り続ける (ほかの地域が指している)。床の manifest は前のまま
-            continue
+            sys.exit(f"{name}: regions.json に無く、持ち物の manifest に sourceRegion も無い")
         manifest = region_manifest(r, batches, where)
         out = os.path.dirname(d)
         with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
@@ -441,9 +469,11 @@ def region_manifest(region, batches, where):
 
 def main():
     ap = argparse.ArgumentParser(description="VMT-DT v4 を地域をまたいで重複なく焼く")
-    ap.add_argument("mode", choices=["candidates", "labels", "bake", "owned"])
+    ap.add_argument("mode", choices=["candidates", "labels", "bake", "owned", "inventory"])
     ap.add_argument("--regions", default=os.path.join(HERE, "regions.json"))
-    ap.add_argument("--released", default="", help="Release (v4) にある地域 (カンマ区切り)。どの段にも同じものを渡す")
+    ap.add_argument("--inventory", default=None,
+                    help="焼いた地域の持ち物の一覧 ({地域: [[z, x, y], ...]})。どの段にも同じものを渡す。inventory: 書き出す先")
+    ap.add_argument("--owns", default=None, help="inventory: <地域>.own.json.gz のあるディレクトリ")
     ap.add_argument("--region", help="candidates / bake / owned: 地域の名前")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。無ければ planetiler で作る")
     ap.add_argument("--tools", default="build/tools")
@@ -457,31 +487,43 @@ def main():
     ap.add_argument("--out", default=None, help="candidates: 書き出すディレクトリ")
     args = ap.parse_args()
     regions = load_regions(args.regions)
-    released = parse_released(args.released)
+    if args.mode == "inventory":
+        inv = {}
+        for path in sorted(glob.glob(os.path.join(args.owns, "*.own.json.gz"))):
+            o = load_gz(path)
+            inv[o["region"]] = o["tiles"]
+        with open(args.inventory, "w", encoding="utf-8") as f:
+            json.dump(inv, f, separators=(",", ":"))
+        owners(regions, inv)  # 一覧どうしが重なっていないか
+        print(f"持ち物の一覧: {len(inv)} 地域、{sum(len(v) for v in inv.values())} タイル -> {args.inventory}")
+        return
+    inventory = load_inventory(args.inventory)
 
     if args.mode == "owned":
         r = find(regions, args.region)
-        t = owned(regions, released, r["name"])
+        t = owned(regions, inventory, r["name"])
         print(f"{r['name']}: 範囲 {len(tiles_of(r))} タイルのうち {len(t)} タイルを持つ")
     elif args.mode == "candidates":
         r = find(regions, args.region)
         mb = mbtiles_for(r, args.mbtiles, args.tools, args.work, args.java_mem)
-        dump_gz(os.path.join(args.out, f"{r['name']}.json.gz"), candidates(r, mb, owned(regions, released, r["name"])))
+        dump_gz(os.path.join(args.out, f"{r['name']}.json.gz"), candidates(r, mb, owned(regions, inventory, r["name"])))
     elif args.mode == "labels":
         cand_files = sorted(glob.glob(os.path.join(args.cands, "*.json.gz")))
         frozen = sorted(glob.glob(os.path.join(args.frozen, "*.labels.json.gz"))) if args.frozen else []
-        missing = released - {os.path.basename(p).split(".")[0] for p in frozen} - \
+        missing = set(inventory) - {os.path.basename(p).split(".")[0] for p in frozen} - \
             {os.path.basename(p).split(".")[0] for p in cand_files}
         if missing:
             sys.exit(f"Release にある地域の置いたラベルが無い: {', '.join(sorted(missing))}")
-        plans = place_all(regions, released, cand_files, frozen, args.tools)
+        plans = place_all(regions, inventory, cand_files, frozen, args.tools)
         for name, plan in plans.items():
             dump_gz(os.path.join(args.plans, f"{name}.json.gz"), plan)
     elif args.mode == "bake":
         r = find(regions, args.region)
         mb = mbtiles_for(r, args.mbtiles, args.tools, args.work, args.java_mem)
-        bake(r, regions, released, mb, os.path.join(args.plans, f"{r['name']}.json.gz"), args.site, args.tools,
-             args.work, args.jobs)
+        own = bake(r, regions, inventory, mb, os.path.join(args.plans, f"{r['name']}.json.gz"), args.site, args.tools,
+                   args.work, args.jobs)
+        if args.out:  # 持ち物の一覧 (Release の <地域>.own.json.gz)
+            dump_gz(os.path.join(args.out, f"{r['name']}.own.json.gz"), own)
 
 
 if __name__ == "__main__":

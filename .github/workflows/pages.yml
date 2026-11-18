@@ -78,7 +78,6 @@ jobs:
       made: ${{ steps.plan.outputs.made }}
       glyph_matrix: ${{ steps.plan.outputs.glyph_matrix }}
       glyph_count: ${{ steps.plan.outputs.glyph_count }}
-      glyph_released: ${{ steps.plan.outputs.glyph_released }}
     steps:
       - uses: actions/checkout@v7
 
@@ -100,13 +99,31 @@ jobs:
             echo "made=$(python -c 'import json; print(json.load(open("plan.json"))["made"])')"
             echo "glyph_matrix=$(python -c 'import json; print(json.dumps(json.load(open("plan.json"))["glyph_matrix"]))')"
             echo "glyph_count=$(python -c 'import json; print(json.load(open("plan.json"))["glyph_count"])')"
-            echo "glyph_released=$(python -c 'import json; print(json.load(open("plan.json"))["glyph_released"])')"
           } >> "$GITHUB_OUTPUT"
           for dist in $(python -c 'import json; print(" ".join(json.load(open("plan.json"))["releases"]))'); do
             gh release create "$dist" --target "$GITHUB_SHA" --title "$dist の地域" \
               --notes "VMT-DT $dist の地域。<地域>.tar.gz を site/ に展開すると $dist/<地域>/ になる。Actions がこれを戻して Pages に配る。"
             echo "Release $dist を作った"
           done
+
+      # v4: 焼いた地域の持ち物の一覧 (Release の <地域>.own.json.gz) を集める。v4 のどの job も、これで持ち主を決める
+      # (この実行の途中で Release が増えても、同じ一覧を使う)
+      - name: v4 の持ち物の一覧
+        if: steps.plan.outputs.glyph_count != '0'
+        run: |
+          set -euo pipefail
+          mkdir -p v4/owns
+          if python -c 'import json, sys; sys.exit(0 if json.load(open("released.json")).get("v4") else 1)'; then
+            gh release download v4 --dir v4/owns --pattern '*.own.json.gz'
+          fi
+          python vmt_v4.py inventory --owns v4/owns --inventory v4/inventory.json
+
+      - if: steps.plan.outputs.glyph_count != '0'
+        uses: actions/upload-artifact@v7
+        with:
+          name: v4-inventory
+          path: v4/inventory.json
+          retention-days: 3
 
   # 1 地域 = 1 job。焼いた版ごとにすぐ Release に保存する (途中で止まっても、保存した版は次の実行で焼かない)
   bake:
@@ -186,13 +203,18 @@ jobs:
           key: osm-${{ steps.osm.outputs.area }}-${{ steps.osm.outputs.date }}
           restore-keys: osm-${{ steps.osm.outputs.area }}-
 
+      - if: matrix.glyph
+        uses: actions/download-artifact@v8
+        with:
+          name: v4-inventory
+          path: v4
+
       - name: 焼いて Release に保存する
         env:
           BUILD: ${{ matrix.build }}
           PACK: ${{ matrix.pack }}
           POI: ${{ matrix.poi }}
           GLYPH: ${{ matrix.glyph }}
-          GLYPH_RELEASED: ${{ needs.plan.outputs.glyph_released }}
         run: |
           set -euo pipefail
           dist=$(python -c 'import build_site; print(build_site.DIST)')
@@ -230,7 +252,7 @@ jobs:
             # v4 はここではラベルの候補を集めるだけ (焼くのは glyph job)。MBTiles は使い回し、glyph job に渡す
             given=()
             [ -f "build/$N.mbtiles" ] && given=(--mbtiles "$N=build/$N.mbtiles")
-            python vmt_v4.py candidates --region "$N" --released "$GLYPH_RELEASED" --tools build/tools --work build \
+            python vmt_v4.py candidates --region "$N" --inventory v4/inventory.json --tools build/tools --work build \
               --out v4/cands "${given[@]}"
             mkdir -p v4/mbtiles
             mv "build/$N.mbtiles" "v4/mbtiles/$N.mbtiles"
@@ -261,7 +283,6 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
-      GLYPH_RELEASED: ${{ needs.plan.outputs.glyph_released }}
     steps:
       - uses: actions/checkout@v7
 
@@ -271,6 +292,11 @@ jobs:
           cache: pip
 
       - run: pip install -r requirements.txt
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: v4-inventory
+          path: v4
 
       # ラベルの字の幅を測るのにフォントが要る
       - name: 道具のキャッシュ
@@ -297,10 +323,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p v4/frozen
-          if [ -n "$GLYPH_RELEASED" ]; then
+          if python -c 'import json, sys; sys.exit(0 if json.load(open("v4/inventory.json")) else 1)'; then
             gh release download v4 --dir v4/frozen --pattern '*.labels.json.gz'
           fi
-          python vmt_v4.py labels --released "$GLYPH_RELEASED" --tools build/tools \
+          python vmt_v4.py labels --inventory v4/inventory.json --tools build/tools \
             --cands v4/cands --frozen v4/frozen --plans v4/plans
 
       - uses: actions/upload-artifact@v7
@@ -325,7 +351,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       N: ${{ matrix.name }}
-      GLYPH_RELEASED: ${{ needs.plan.outputs.glyph_released }}
     steps:
       - uses: actions/checkout@v7
 
@@ -360,16 +385,24 @@ jobs:
           name: v4-plans
           path: v4/plans
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: v4-inventory
+          path: v4
+
       - name: 焼いて Release に保存する
         run: |
           set -euo pipefail
           dist=$(python -c 'import build_site; print(build_site.GLYPH_DIST)')
-          python vmt_v4.py bake --region "$N" --released "$GLYPH_RELEASED" --mbtiles "$N=v4/mbtiles/$N.mbtiles" \
-            --plans v4/plans --site site --tools build/tools --work build --jobs "$(nproc)"
           mkdir -p pack
+          python vmt_v4.py bake --region "$N" --inventory v4/inventory.json --mbtiles "$N=v4/mbtiles/$N.mbtiles" \
+            --plans v4/plans --site site --tools build/tools --work build --jobs "$(nproc)" --out pack
           tar -czf "pack/$N.tar.gz" -C site "$dist/$N"
           cp "site/$dist/$N/own/labels.json.gz" "pack/$N.labels.json.gz"
-          gh release upload "$dist" "pack/$N.tar.gz" "pack/$N.labels.json.gz" --clobber
+          # 持ち物の一覧と置いたラベルを先に、地域 (tar.gz。plan が「焼いた」とみなす印) を最後に保存する
+          # (途中で止まっても、一覧があれば次の実行でも同じタイルを焼く)
+          gh release upload "$dist" "pack/$N.own.json.gz" "pack/$N.labels.json.gz" --clobber
+          gh release upload "$dist" "pack/$N.tar.gz" --clobber
           echo "$N: $dist を Release に保存した"
 
   # Release からすべての版を戻して (配らない版は戻さない)、索引を作り、R2 と Pages に出す

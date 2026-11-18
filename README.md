@@ -134,13 +134,17 @@ v3 までは地域ごとに範囲のタイルを全部焼いていたので、�
 
 - ズームごとの作り方: z11 までは広域の作り方 (地名は国土数値情報、境界は県境だけ)、z12 からは都市の作り方 (OSM の地名と POI)。
   都市の地域は床が読む z13・z14 だけを焼きます (v3 の z10〜z12 は焼かない)。
-- 持ち主: タイルを範囲に含む地域を、Release (v4) にある地域 → Pages の地域 → regions.json の並び、の順に並べた最初の地域。
+- 持ち主: 焼いた地域は、焼いたタイルの一覧 (Release の `<地域>.own.json.gz`) を残し、そのタイルの持ち主であり続けます。
+  どの一覧にも無いタイルは、範囲に含む地域を Pages の地域 → regions.json の並び、の順に並べた最初の地域が持ち主です。
   持ち主だけがそのタイルを焼いて `v4/<持ち主>/own/` に置きます。東京 (Pages) の床が R2 のシートを指さないよう、Pages の地域を先にしています。
-  Release にある地域の持ち物は変わらないので、地域を足しても焼いたタイルは変わりません。
+  地域を足しても、一部の地域だけ焼けて実行し直しても、焼いたタイルは変わりません。glyph job は一覧とラベルを先に、
+  `<地域>.tar.gz` (plan が「焼いた」とみなす印) を最後に保存します。
+- regions.json から消した地域も、持ち物の manifest に残した定義 (`sourceRegion`) で、床の manifest を作って配り続けます。
 - ラベル: 持ち主の境目で重ならないよう、Actions はラベルの候補を地域ごとに集め (bake job)、全地域をまとめて置き (labels job)、
   地域ごとに持ち物のタイルを焼きます (glyph job)。Release にある地域の置いたラベル (`<地域>.labels.json.gz`) は動かしません。
 - 床が読む manifest (`v4/<地域>/manifest.json`) は配るときに作ります。範囲のタイルを全部並べ、シートとまとめた .bin は
-  持ち主の `own/` の絶対 URL で指します (`binGroupBase` は空)。
+  持ち主の `own/` の絶対 URL で指します (`binGroupBase` は空)。R2 には `own/` を地域と同じ単位で上げ (`own/manifest.json` が
+  上げ終わった印)、床の manifest と region.json は毎回上げ直します (`r2_upload.py`)。
 - v4 の地域を焼き直すと、その地域が持つタイルを指すほかの地域の床も変わります (頂点数を焼き込んだワールドは作り直す)。
 - 持ち主ごとに元データの日付が違うので、持ち主の境目で道などが少しずれることがあります。
 
@@ -276,7 +280,8 @@ curl -fsSL -o build/tools/NotoSansCJK-Regular.ttc https://github.com/notofonts/n
 
 既にある MBTiles を使うときは `--mbtiles tokyo=path/to/tokyo.mbtiles`、試しに一部のズームだけ焼くときは `--zooms 10-11`。
 
-v4 は `vmt_v4.py` で 3 段に焼きます (Release (v4) にある地域は `--released` にカンマ区切りで渡す。どの段にも同じものを)。
+v4 は `vmt_v4.py` で 3 段に焼きます (焼いた地域があれば、Release の `<地域>.own.json.gz` から `vmt_v4.py inventory` で作った
+持ち物の一覧を `--inventory` に渡す。どの段にも同じものを)。
 
 ```bash
 .venv/bin/python vmt_v4.py candidates --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --out build/v4/cands

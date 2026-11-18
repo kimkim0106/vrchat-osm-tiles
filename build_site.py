@@ -398,6 +398,15 @@ def move_r2(site, r2, regions):
     if os.path.exists(r2):
         shutil.rmtree(r2)
     os.makedirs(r2)
+    # regions.json から消した v4 の地域は、持ち物の manifest に残した定義 (sourceRegion) の host で決める
+    known = {r["name"] for r in regions}
+    for path in glob.glob(os.path.join(site, GLYPH_DIST, "*", "own", "manifest.json")):
+        name = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        if name not in known:
+            with open(path, encoding="utf-8") as f:
+                src = json.load(f).get("sourceRegion")
+            if src:
+                regions = regions + [src]
     for r in regions:
         if r.get("host", "pages") != "r2":
             continue
