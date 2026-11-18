@@ -15,6 +15,8 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/manifest.json        �
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.png   シート (複数タイル = 1 画像)
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   同じシートの生データ (binZooms のズームだけ)
 https://kimkim0106.github.io/vrchat-osm-tiles/v3/<地域>/...                  v2 と同じ形。POI (駅・観光地・店など) 入り
+https://kimkim0106.github.io/vrchat-osm-tiles/v4/<地域>/manifest.json        (まだ配っていない) 床が読む manifest。シートは絶対 URL
+https://kimkim0106.github.io/vrchat-osm-tiles/v4/<地域>/own/sheets/<z>/<k>.png  その地域が持ち主のタイルのシート
 ```
 
 `regions.json` で `"host": "r2"` の地域は Pages の容量 (1 GB) に入らないので、Cloudflare R2 に置きます。
@@ -34,8 +36,9 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v3/<地域>/...                  v
 ワールドの読み方が変わる変更は形式の版を上げて次のディレクトリに出し、古い版も配り続けます。
 `v3` はシートの形式は v2 と同じ (manifest の `version` は 2) で、POI を入れたものです (index.json の `version` は 3)。
 v2 までのワールドのシェーダーは POI を地名と区別できないので、別のディレクトリにしています。
-`v4` (作業中。まだ焼いていない・配っていない) はタイルの形式 2 です。ラベルの字の形をタイルに持たず、ワールドが実行時に作る
-共有の字のアトラスの番号で持ちます (下の「形式の版」)。
+`v4` (まだ配っていない) はタイルの形式 2 です。ラベルの字の形をタイルに持たず、ワールドが実行時に作る
+共有の字のアトラスの番号で持ちます (下の「形式の版」)。また、地域をまたいで同じタイルを 1 回だけ焼いて 1 か所に置きます
+(下の「v4: 重複しない持ち方」)。
 
 ## ツール
 
@@ -69,7 +72,7 @@ Actions が `tools/` をそのままサイトに写します。`tools/` を変�
 | v1 | タイル 1 枚 = 画像 1 枚 |
 | v2 | 複数のタイルを 2048 × 2048 までの 1 枚 (シート) にまとめる。タイルの中身は v1 と同じ。形式は `vmt_pack.py` の冒頭 |
 | v3 | v2 と同じ形のシート。地名に加えて POI (駅・観光・名所・神社・寺・公園・公共施設・宿泊・飲食・買い物) を載せる。ラベルの種類の番号はラベル頂点の T3.B (`vmt_bake.py` の `POI_CATEGORIES`)、一覧は manifest の `labelCategories`。文字アトラスのマスは 32 px |
-| v4 | v3 と同じ設定 (POI 入り) をタイルの形式 2 で焼いたシート (作業中)。ラベルは 1 字 1 レコードで、字は共有の字のアトラス (`glyphs_v4.txt` の並び) の番号。言語ごとの塊 (日本語・英語。広域の地図は日本語だけ)。manifest に `tileFormat` 2・`labelLanguages`・`glyphSet` が付く。東京で v3 よりテクスチャの行が 42%、PNG が 18% 少ない |
+| v4 | v3 と同じ設定 (POI 入り) をタイルの形式 2 で焼いたシート。ラベルは 1 字 1 レコードで、字は共有の字のアトラス (`glyphs_v4.txt` の並び) の番号。言語ごとの塊 (日本語・英語。広域の地図は日本語だけ)。manifest に `tileFormat` 2・`labelLanguages`・`glyphSet` が付く。東京で v3 よりテクスチャの行が 50%、PNG が 19% 少ない。タイルは地域をまたいで 1 回だけ焼き、地域の manifest はほかの地域のシートも絶対 URL で指す |
 
 ## VRChat の制約と、このリポジトリでの対応
 
@@ -115,12 +118,31 @@ GitHub Pages はサイト 1 GB まで、帯域は月 100 GB が目安です。`b
 - `binGroups` はまとめた .bin を R2 に作る版とズーム (上の「まとめた .bin」)。R2 の Secrets / Variables が無ければ作らない。
 - `dists` を書くと、その版だけを Pages に載せる (例 `["v2"]`)。v2 は v1 から作るので v1 も焼いて Release に保存するが、
   サイトには載せない。v1 を読むのは卓上ボード (VmtMap) だけなので、東京より後の地域は v2 だけにしてサイトの容量を空けている。
-- v3 は `dists` か `releaseOnly` に `v3` がある地域 (`dists` が無ければすべて) だけ焼く。
+- v3 / v4 は `dists` か `releaseOnly` にその版がある地域 (`dists` が無ければすべて) だけ焼く。
+- v4 の地域は末尾に足す (Release にまだ無い地域どうしでは、並びの先の地域がタイルの持ち主になる)。
 - `releaseOnly` に書いた版は、焼いて Release に保存するが配らない (例 `"dists": ["v2"], "releaseOnly": ["v3"]`)。
   配る前に確かめたいときに使い、確かめたら `dists` に移す (Release から戻して配る。焼き直さない)。
 - 今はどの地域も v3 だけを配る (`"dists": ["v3"]`)。v1 / v2 は Release に残っている。ワールドの床は v3 を読み、
   v1 を読む卓上ボード VmtMap は使っていない。R2 から外した v2 のファイルは R2 に残っている (r2_upload.py は消さない。
   消すなら Cloudflare の画面か aws CLI で `v2/` を消す)。
+
+### v4: 重複しない持ち方
+
+v3 までは地域ごとに範囲のタイルを全部焼いていたので、隣り合う地域 (東京・横浜・さいたま・千葉など) や、広域の地図どうしで
+同じタイルを何度も焼いて置いていました (v3 の PNG 4.1 GB のうち 0.7 GB)。将来、広域・地方・都市をシームレスに切り替えられる
+ように、v4 はタイル (z, x, y) ごとに中身を 1 つに決め、1 回だけ焼いて 1 か所に置きます。焼き方は `vmt_v4.py` の冒頭。
+
+- ズームごとの作り方: z11 までは広域の作り方 (地名は国土数値情報、境界は県境だけ)、z12 からは都市の作り方 (OSM の地名と POI)。
+  都市の地域は床が読む z13・z14 だけを焼きます (v3 の z10〜z12 は焼かない)。
+- 持ち主: タイルを範囲に含む地域を、Release (v4) にある地域 → Pages の地域 → regions.json の並び、の順に並べた最初の地域。
+  持ち主だけがそのタイルを焼いて `v4/<持ち主>/own/` に置きます。東京 (Pages) の床が R2 のシートを指さないよう、Pages の地域を先にしています。
+  Release にある地域の持ち物は変わらないので、地域を足しても焼いたタイルは変わりません。
+- ラベル: 持ち主の境目で重ならないよう、Actions はラベルの候補を地域ごとに集め (bake job)、全地域をまとめて置き (labels job)、
+  地域ごとに持ち物のタイルを焼きます (glyph job)。Release にある地域の置いたラベル (`<地域>.labels.json.gz`) は動かしません。
+- 床が読む manifest (`v4/<地域>/manifest.json`) は配るときに作ります。範囲のタイルを全部並べ、シートとまとめた .bin は
+  持ち主の `own/` の絶対 URL で指します (`binGroupBase` は空)。
+- v4 の地域を焼き直すと、その地域が持つタイルを指すほかの地域の床も変わります (頂点数を焼き込んだワールドは作り直す)。
+- 持ち主ごとに元データの日付が違うので、持ち主の境目で道などが少しずれることがあります。
 
 今の地域は 47 都道府県の県庁所在地です (床マップに合わせて、どれも z13 で 10 × 11 枚 = 床 20 m × 22 m)。
 `pref_regions.py` が県庁の位置 (OpenStreetMap) から範囲を決めて `regions.json` に書きます。
@@ -253,6 +275,15 @@ curl -fsSL -o build/tools/NotoSansCJK-Regular.ttc https://github.com/notofonts/n
 ```
 
 既にある MBTiles を使うときは `--mbtiles tokyo=path/to/tokyo.mbtiles`、試しに一部のズームだけ焼くときは `--zooms 10-11`。
+
+v4 は `vmt_v4.py` で 3 段に焼きます (Release (v4) にある地域は `--released` にカンマ区切りで渡す。どの段にも同じものを)。
+
+```bash
+.venv/bin/python vmt_v4.py candidates --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --out build/v4/cands
+.venv/bin/python vmt_v4.py labels --tools build/tools --cands build/v4/cands --plans build/v4/plans
+.venv/bin/python vmt_v4.py bake --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --plans build/v4/plans --site site
+.venv/bin/python build_site.py --site site --index-only    # 床が読む manifest (site/v4/tokyo/manifest.json) と索引
+```
 Release の地域を手元に戻すには `gh release download v1 -p '*.tar.gz'` で取って `site/` に展開し、`build_site.py --site site --index-only` で索引を作ります。
 
 配信を確かめる:

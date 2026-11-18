@@ -800,6 +800,13 @@ def label_candidates(db, z, tiles):
     return cands
 
 
+def _unit_y(z, y):
+    """ズーム z 全体でのタイル単位の y の緯度での、タイル単位 1 つの長さ (m)。"""
+    n = (1 << z) * EXTENT
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1.0 - 2.0 * y / n))))
+    return _unit_m(z, lat)
+
+
 def _tile_units(lon, lat, z):
     """経緯度をズーム z 全体でのタイル単位にする。"""
     n = (1 << z) * EXTENT
@@ -853,7 +860,7 @@ def wide_candidates(db, z, tiles):
                 seen.add(name)
                 cands.append({"pri": pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
                               "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                              "size": size, "margin": margin * LABEL_CONFIG["spacing"]})
+                              "size": size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
     cands.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
     return cands
 
@@ -879,9 +886,17 @@ def _cluster(points, limit):
     return list(groups.values())
 
 
-def merge_labels(cands, unit_m):
+def merge_labels(cands, unit_m, z=None, fixed=()):
     """「永田町一丁目」「永田町二丁目」のような丁目違いを近いものどうし 1 つの町名にまとめ (位置は平均)、
-    近くにある同名の地名は優先度の高い 1 つだけ残す。タイルをまたいでも行う。"""
+    近くにある同名の地名は優先度の高い 1 つだけ残す。タイルをまたいでも行う。
+    unit_m が None なら、距離は候補ごとにその緯度で測る (ズーム z。地域をまたいで同じ結果にするため。VMT-DT v4)。
+    fixed は先に置いてある (動かせない) ラベル。それと同名で近いものは捨てる。"""
+    if unit_m is None:
+        def unit(c):
+            return _unit_y(z, c["y"])
+    else:
+        def unit(c):
+            return unit_m
     out = []
     chome = {}
     for c in cands:
@@ -891,7 +906,7 @@ def merge_labels(cands, unit_m):
         else:
             out.append(c)
     for base, members in chome.items():
-        for idx in _cluster([(c["x"], c["y"]) for c in members], LABEL_CHOME_MERGE_M / unit_m):
+        for idx in _cluster([(c["x"], c["y"]) for c in members], LABEL_CHOME_MERGE_M / unit(members[0])):
             group = [members[i] for i in idx]
             first = min(group, key=lambda c: (c["pri"], c["rank"]))
             merged = dict(first, name=base)
@@ -903,14 +918,16 @@ def merge_labels(cands, unit_m):
     for c in out:
         groups.setdefault((c["cat"], "".join(c["name"].split())), []).append(c)
     for (cat, _), members in groups.items():
-        limit = (LABEL_DEDUP_M if cat == 0 else POI_CATEGORIES[cat]["dedup"]) / unit_m
         for c in members:
+            limit = (LABEL_DEDUP_M if cat == 0 else POI_CATEGORIES[cat]["dedup"]) / unit(c)
             c["lines"] = sum(1 for d in members if math.hypot(d["x"] - c["x"], d["y"] - c["y"]) <= limit)
     out.sort(key=lambda c: (c["pri"], -c["lines"] if c["cat"] else 0, c["rank"], c["name"], c["x"], c["y"]))
     kept = []
     seen = {}  # (種類, 名前) -> 残したものの位置。駅と地名が同名でも、種類が違えば両方残す (片方を消して出せるように)
+    for c in fixed:
+        seen.setdefault((c["cat"], "".join(c["name"].split())), []).append((c["x"], c["y"]))
     for c in out:
-        limit = (LABEL_DEDUP_M if c["cat"] == 0 else POI_CATEGORIES[c["cat"]]["dedup"]) / unit_m
+        limit = (LABEL_DEDUP_M if c["cat"] == 0 else POI_CATEGORIES[c["cat"]]["dedup"]) / unit(c)
         same = seen.setdefault((c["cat"], "".join(c["name"].split())), [])  # 空白の有無の違いは同名とみなす
         if any(math.hypot(x - c["x"], y - c["y"]) <= limit for x, y in same):
             continue
@@ -919,16 +936,21 @@ def merge_labels(cands, unit_m):
     return kept
 
 
-def place_labels(cands):
+def place_labels(cands, fixed=()):
     """優先度の高いものから置き、重なるものを捨てる。これを倍率 2^(k/8) (k = LABEL_SCALE_MIN..LABEL_SCALE_STEPS) ごとに行い、
     各ラベルが表示される倍率の範囲 (k の最小と最大が続いている区間) を "kmin" / "kmax" に入れる。
     一度も置けないものは捨てる。文字は 90° 単位で回るので、横向きと縦向きの両方で重ならないことを確かめる。
     種類 (地名 / POI) をまたいで判定する。種類を消しても、それに押されて置けなかったものは出ない (重ならないことを優先)。
-    候補が多い (POI は 1 ズームで十数万) ので、置いたラベルを格子に入れて近くだけ調べる。"""
+    候補が多い (POI は 1 ズームで十数万) ので、置いたラベルを格子に入れて近くだけ調べる。
+    fixed は先に置いてある (動かせない) ラベル (kmin / kmax 付き)。その倍率の範囲では、候補より先に格子に入れる (VMT-DT v4)。"""
     px = EXTENT / 512.0
-    n = len(cands)
-    if n == 0:
+    if not cands:
         return []
+    fixed = list(fixed)
+    nf = len(fixed)
+    allc = fixed + list(cands)
+    n = len(allc)
+    cands = allc
     xs = [c["x"] for c in cands]
     ys = [c["y"] for c in cands]
     hw = [0.0] * n
@@ -946,11 +968,20 @@ def place_labels(cands):
     cell0 = 2.0 * sorted(rad)[int(n * 0.9)] + max(mg)
     ks = list(range(LABEL_SCALE_MIN, LABEL_SCALE_STEPS + 1))
     shown = np.zeros((n, len(ks)), dtype=bool)
+
+    def k_index(v, last):
+        return (0 if v == 0 else v - 128 - LABEL_SCALE_MIN) if not last else \
+            (len(ks) - 1 if v == 255 else v - 128 - LABEL_SCALE_MIN)
+
     for si, k in enumerate(ks):
         s = 2.0 ** (k / 8.0)
         cell = cell0 * s
         grid = {}
-        for i in range(n):
+        for i in range(nf):
+            c = cands[i]
+            if k_index(c["kmin"], False) <= si <= k_index(c["kmax"], True):
+                grid.setdefault((int(xs[i] // cell), int(ys[i] // cell)), []).append(i)
+        for i in range(nf, n):
             gx, gy = int(xs[i] // cell), int(ys[i] // cell)
             r = int(math.ceil((rad[i] + rmax + mg[i]) * s / cell))
             hit = False
@@ -976,6 +1007,8 @@ def place_labels(cands):
     steps = len(ks)
     out = []
     for i, c in enumerate(cands):
+        if i < nf:
+            continue
         row = shown[i]
         best, start = None, None
         for k in range(steps + 1):
@@ -1020,6 +1053,12 @@ def plan_labels(db, levels, lat):
             cats[c["cat"]] = cats.get(c["cat"], 0) + 1
         print(f"z{z}: labels {count} (candidates {len(cands)}) by category {dict(sorted(cats.items()))}", flush=True)
     return plan
+
+
+def label_advs(lab):
+    """ラベルの字ごとの送り幅 (px)。place_labels が入れるものと同じ (外から渡した配置 (--plan) に足す)。"""
+    k = lab["size"] / float(LABEL_FONT_PX)
+    return [glyph_sdf(ch)[1] * k for ch in lab["name"]]
 
 
 def build_labels(planned, z, tx, ty, max_atlas_rows=MAX_H):
@@ -1439,6 +1478,10 @@ def main(argv=None):
                     help="形式 2 の共有の字のアトラスの並び (Tools/GlyphAtlas/glyphs_v4.txt)")
     ap.add_argument("--langs", default=None, metavar="L[,L]",
                     help="形式 2 のラベルの言語の塊 (例: ja,en。最大 2)。省略時は --lang だけ。広域の地図 (--wide-labels) は最初の言語だけ")
+    ap.add_argument("--tiles", default=None, metavar="JSON",
+                    help="範囲のうち、このタイル ([[z, x, y], ...]) だけを焼く (VMT-DT v4 の持ち主の分。manifest の tiles もこれだけ)")
+    ap.add_argument("--plan", default=None, metavar="JSON",
+                    help="ラベルの配置を自分で決めず、これを使う ({\"z/x/y\": [[言語 0 のラベル...], ...]}。vmt_v4.py が地域をまたいで決める)")
     args = ap.parse_args(argv)
     if args.tile_format >= 2 and not args.glyphs:
         ap.error("--tile-format 2 には --glyphs が要る")
@@ -1511,8 +1554,35 @@ def main(argv=None):
             for tx in range(lx0, lx1 + 1):
                 jobs.append((z, tx, ty))
 
+    if args.tiles:
+        with open(args.tiles, encoding="utf-8") as f:
+            wanted = {tuple(t) for t in json.load(f)}
+        unknown = wanted - set(jobs)
+        if unknown:
+            ap.error(f"--tiles に範囲の外のタイルがある: {sorted(unknown)[:3]}")
+        jobs = [j for j in jobs if j in wanted]
+        for lv in levels:  # offset は、そのズームの最初のタイルの番号 (無ければ次のズームの先頭)
+            lv["offset"] = next((i for i, j in enumerate(jobs) if j[0] >= lv["z"]), len(jobs))
+
     # ラベルはズームごとに全タイルまとめて配置する (タイルをまたぐ重なりと重複を除くため)
-    if LABEL_CONFIG["format"] >= 2:
+    if args.plan:
+        LABEL_CONFIG["font"] = LABEL_CONFIG["font"] or next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
+        with open(args.plan, encoding="utf-8") as f:
+            given = json.load(f)
+        plan = {}
+        job_set = set(jobs)
+        for key, per_lang in given.items():
+            z, x, y = (int(v) for v in key.split("/"))
+            if (z, x, y) not in job_set:
+                continue
+            for labs in per_lang:
+                for lab in labs:
+                    lab["advs"] = label_advs(lab)
+            if LABEL_CONFIG["format"] >= 2:
+                plan[(z, x, y)] = {li: labs for li, labs in enumerate(per_lang)}
+            else:
+                plan[(z, x, y)] = per_lang[0]
+    elif LABEL_CONFIG["format"] >= 2:
         # 言語ごとに配置する (字の幅が違うので、重なりの判定も別)。plan[(z, x, y)] = {言語の番号: ラベルのリスト}
         plan = {}
         for li, lang in enumerate(LABEL_CONFIG["langs"]):

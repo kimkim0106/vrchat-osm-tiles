@@ -6,10 +6,13 @@ name: タイルを焼いて Pages に配る
 #   v1 (POI なし、1 タイル = 1 画像) は「まだ Release に無い地域」と「手動実行で rebuild に指定した地域」だけ。
 #   v2 (シート) は v1 から作る。「まだ Release に無い地域」と「v1 を焼き直した地域」。
 #   v3 (POI 入りのシート) は v1 とは別に焼く。「まだ Release に無い地域」と「rebuild に指定した地域」。同じ job で v1 も焼くなら MBTiles を使い回す。
-#   v4 (タイルの形式 2 = 共有の字のアトラスの番号で持つ POI 入りのシート) も同じ条件で、同じ job の MBTiles を使い回す。
+#   v4 (タイルの形式 2 = 共有の字のアトラスの番号で持つ POI 入りのシート) も同じ条件。ただし地域をまたいで同じタイルを
+#   1 回だけ焼く (vmt_v4.py) ので 3 段に分ける: bake job でラベルの候補を集め (MBTiles は使い回す)、labels job で全地域の
+#   ラベルをまとめて置き、glyph job (地域ごと) でその地域が持ち主のタイルだけを焼いて Release に保存する。
 #   作る版は regions.json の dists と releaseOnly (releaseOnly は Release に保存するが配らない)。
 #
 # job: plan (焼く地域を決め、Release が無ければ作る) → bake (地域ごとの matrix。焼いて Release に保存)
+#      → labels (v4 のラベルを置く) → glyph (v4 を地域ごとに焼いて Release に保存)
 #      → publish (Release から戻して索引を作り、R2 に上げ、Pages の成果物を作る) → deploy → check
 # bake の地域が 1 つ失敗しても、ほかの地域は焼いて保存する (fail-fast: false)。そのときは publish に進まないので、
 # 「Re-run failed jobs」で失敗した地域だけ焼き直す (保存済みの地域は、次の実行の plan でも焼かない)。
@@ -24,6 +27,8 @@ on:
     paths:
       - vmt_bake.py
       - vmt_pack.py
+      - vmt_v4.py
+      - vmt_bingroup.py
       - glyphs_v4.txt
       - build_site.py
       - plan_build.py
@@ -71,6 +76,9 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
       made: ${{ steps.plan.outputs.made }}
+      glyph_matrix: ${{ steps.plan.outputs.glyph_matrix }}
+      glyph_count: ${{ steps.plan.outputs.glyph_count }}
+      glyph_released: ${{ steps.plan.outputs.glyph_released }}
     steps:
       - uses: actions/checkout@v7
 
@@ -90,6 +98,9 @@ jobs:
             echo "matrix=$(python -c 'import json; print(json.dumps(json.load(open("plan.json"))["matrix"]))')"
             echo "count=$(python -c 'import json; print(json.load(open("plan.json"))["count"])')"
             echo "made=$(python -c 'import json; print(json.load(open("plan.json"))["made"])')"
+            echo "glyph_matrix=$(python -c 'import json; print(json.dumps(json.load(open("plan.json"))["glyph_matrix"]))')"
+            echo "glyph_count=$(python -c 'import json; print(json.load(open("plan.json"))["glyph_count"])')"
+            echo "glyph_released=$(python -c 'import json; print(json.load(open("plan.json"))["glyph_released"])')"
           } >> "$GITHUB_OUTPUT"
           for dist in $(python -c 'import json; print(" ".join(json.load(open("plan.json"))["releases"]))'); do
             gh release create "$dist" --target "$GITHUB_SHA" --title "$dist の地域" \
@@ -181,12 +192,12 @@ jobs:
           PACK: ${{ matrix.pack }}
           POI: ${{ matrix.poi }}
           GLYPH: ${{ matrix.glyph }}
+          GLYPH_RELEASED: ${{ needs.plan.outputs.glyph_released }}
         run: |
           set -euo pipefail
           dist=$(python -c 'import build_site; print(build_site.DIST)')
           sheet_dist=$(python -c 'import build_site; print(build_site.SHEET_DIST)')
           poi_dist=$(python -c 'import build_site; print(build_site.POI_DIST)')
-          glyph_dist=$(python -c 'import build_site; print(build_site.GLYPH_DIST)')
           mkdir -p site pack
           save() {
             local d=$1
@@ -216,19 +227,160 @@ jobs:
             save "$poi_dist"
           fi
           if [ "$GLYPH" = true ]; then
-            # v1 / v3 を焼いたときの MBTiles があれば使い回す (無ければ planetiler から)
+            # v4 はここではラベルの候補を集めるだけ (焼くのは glyph job)。MBTiles は使い回し、glyph job に渡す
             given=()
             [ -f "build/$N.mbtiles" ] && given=(--mbtiles "$N=build/$N.mbtiles")
-            python build_site.py --tools build/tools --work build --site site --jobs "$(nproc)" --only "$N" --glyph "${given[@]}"
-            save "$glyph_dist"
+            python vmt_v4.py candidates --region "$N" --released "$GLYPH_RELEASED" --tools build/tools --work build \
+              --out v4/cands "${given[@]}"
+            mkdir -p v4/mbtiles
+            mv "build/$N.mbtiles" "v4/mbtiles/$N.mbtiles"
           fi
           df -h / | tail -1
 
+      - if: matrix.glyph
+        uses: actions/upload-artifact@v7
+        with:
+          name: v4-cands-${{ matrix.name }}
+          path: v4/cands/
+          retention-days: 3
+
+      - if: matrix.glyph
+        uses: actions/upload-artifact@v7
+        with:
+          name: v4-mbtiles-${{ matrix.name }}
+          path: v4/mbtiles/
+          retention-days: 3
+          compression-level: 0
+
+  # v4: この実行で焼く地域のラベルの候補をすべて合わせて置く (持ち主の境目で重ならないように)。
+  # Release にある地域の置いたラベル (<地域>.labels.json.gz) は動かさず、先に置いてあるものとして扱う
+  labels:
+    needs: [plan, bake]
+    if: ${{ !cancelled() && needs.plan.outputs.glyph_count != '0' && needs.bake.result == 'success' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GLYPH_RELEASED: ${{ needs.plan.outputs.glyph_released }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # ラベルの字の幅を測るのにフォントが要る
+      - name: 道具のキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: build/tools
+          key: tools-planetiler-${{ env.PLANETILER_VERSION }}-noto-${{ env.NOTO_TAG }}
+
+      - name: フォントを取ってくる
+        run: |
+          mkdir -p build/tools
+          cd build/tools
+          [ -f NotoSansCJK-Regular.ttc ] || curl -fsSL -o NotoSansCJK-Regular.ttc \
+            "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
+          printf '%s  NotoSansCJK-Regular.ttc\n' "$NOTO_SHA256" | sha256sum -c -
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: v4-cands-*
+          path: v4/cands
+          merge-multiple: true
+
+      - name: ラベルを置く
+        run: |
+          set -euo pipefail
+          mkdir -p v4/frozen
+          if [ -n "$GLYPH_RELEASED" ]; then
+            gh release download v4 --dir v4/frozen --pattern '*.labels.json.gz'
+          fi
+          python vmt_v4.py labels --released "$GLYPH_RELEASED" --tools build/tools \
+            --cands v4/cands --frozen v4/frozen --plans v4/plans
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: v4-plans
+          path: v4/plans/
+          retention-days: 3
+
+  # v4: 地域ごとに、その地域が持ち主のタイルだけを置いたラベルで焼き、Release に保存する
+  glyph:
+    needs: [plan, labels]
+    if: ${{ !cancelled() && needs.labels.result == 'success' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    permissions:
+      contents: write   # Release に焼いた地域を保存する
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJSON(needs.plan.outputs.glyph_matrix) }}
+    name: glyph (${{ matrix.name }})
+    env:
+      GH_TOKEN: ${{ github.token }}
+      N: ${{ matrix.name }}
+      GLYPH_RELEASED: ${{ needs.plan.outputs.glyph_released }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 道具のキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: build/tools
+          key: tools-planetiler-${{ env.PLANETILER_VERSION }}-noto-${{ env.NOTO_TAG }}
+
+      - name: フォントを取ってくる
+        run: |
+          mkdir -p build/tools
+          cd build/tools
+          [ -f NotoSansCJK-Regular.ttc ] || curl -fsSL -o NotoSansCJK-Regular.ttc \
+            "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
+          printf '%s  NotoSansCJK-Regular.ttc\n' "$NOTO_SHA256" | sha256sum -c -
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: v4-mbtiles-${{ matrix.name }}
+          path: v4/mbtiles
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: v4-plans
+          path: v4/plans
+
+      - name: 焼いて Release に保存する
+        run: |
+          set -euo pipefail
+          dist=$(python -c 'import build_site; print(build_site.GLYPH_DIST)')
+          python vmt_v4.py bake --region "$N" --released "$GLYPH_RELEASED" --mbtiles "$N=v4/mbtiles/$N.mbtiles" \
+            --plans v4/plans --site site --tools build/tools --work build --jobs "$(nproc)"
+          mkdir -p pack
+          tar -czf "pack/$N.tar.gz" -C site "$dist/$N"
+          cp "site/$dist/$N/own/labels.json.gz" "pack/$N.labels.json.gz"
+          gh release upload "$dist" "pack/$N.tar.gz" "pack/$N.labels.json.gz" --clobber
+          echo "$N: $dist を Release に保存した"
+
   # Release からすべての版を戻して (配らない版は戻さない)、索引を作り、R2 と Pages に出す
   publish:
-    needs: [plan, bake]
-    # bake が無い (焼く地域が無い) ときも出す。bake のどれかが失敗したら出さない (Re-run failed jobs で続きから)
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.bake.result == 'success' || needs.bake.result == 'skipped') }}
+    needs: [plan, bake, labels, glyph]
+    # bake が無い (焼く地域が無い) ときも出す。bake / labels / glyph のどれかが失敗したら出さない (Re-run failed jobs で続きから)
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success'
+      && (needs.bake.result == 'success' || needs.bake.result == 'skipped')
+      && (needs.labels.result == 'success' || needs.labels.result == 'skipped')
+      && (needs.glyph.result == 'success' || needs.glyph.result == 'skipped') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 240   # 地域が 47 あり、新しい地域を R2 に上げると 1 地域 1.5 分ほどかかる
     env:
