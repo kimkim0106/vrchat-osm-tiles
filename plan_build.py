@@ -2,15 +2,16 @@
 """plan_build.py - Actions の plan job と publish job が使う。Release にある地域から、焼く地域と戻す地域を決める。
 
 Release (タグ = 版) には <地域>.tar.gz が並ぶ。その一覧を JSON で渡す:
-  {"v1": ["tokyo", "kobe", ...], "v2": [...], "v3": [...]}
+  {"v1": ["tokyo", "kobe", ...], "v2": [...], "v3": [...], "v4": [...]}
 
   python plan_build.py released > released.json
       その一覧を gh で集める (ダウンロードはしない)。
 
   python plan_build.py plan released.json --rebuild "kobe,osaka"
       焼く地域を決める。出力 (JSON):
-        matrix    {"include": [{"name": "kobe", "build": true, "pack": true, "poi": true}, ...]}
-                  build = v1 を焼く (POI なし)、pack = v2 を v1 からまとめる、poi = v3 を焼く
+        matrix    {"include": [{"name": "kobe", "build": true, "pack": true, "poi": true, "glyph": true}, ...]}
+                  build = v1 を焼く (POI なし)、pack = v2 を v1 からまとめる、poi = v3 を焼く、
+                  glyph = v4 (タイルの形式 2) を焼く
         made      この実行で作る版と地域 (v3/kobe のように。空白区切り。R2 に上げ直す)
         releases  焼いた地域を保存する版のうち、まだ Release が無いもの (plan job が作る)
         count     matrix の地域の数
@@ -27,6 +28,7 @@ Release (タグ = 版) には <地域>.tar.gz が並ぶ。その一覧を JSON �
   v1   その地域で v1 を作り、v1 が Release に無いか、rebuild に指定した
   v2   その地域で v2 を作り、v1 を焼くか、v2 が Release に無い
   v3   その地域で v3 を作り、v3 が Release に無いか、rebuild に指定した
+  v4   その地域で v4 を作り、v4 が Release に無いか、rebuild に指定した
 """
 import argparse
 import json
@@ -56,19 +58,22 @@ def plan(regions, released, rebuild):
     include = []
     for r in regions:
         n = r["name"]
-        build = pack = poi = False
+        build = pack = poi = glyph = False
         if b.wants_dist(r, b.DIST):
             build = n in forced or n not in have[b.DIST]
         if b.wants_dist(r, b.SHEET_DIST):
             pack = build or n not in have[b.SHEET_DIST]
         if b.wants_dist(r, b.POI_DIST):
             poi = n in forced or n not in have[b.POI_DIST]
+        if b.wants_dist(r, b.GLYPH_DIST):
+            glyph = n in forced or n not in have[b.GLYPH_DIST]
         if pack and not build and n not in have[b.DIST]:
             sys.exit(f"{n}: v2 を作るのに v1 が Release に無い")  # wants_dist が v2 なら v1 も作るので、ここには来ない
-        if build or pack or poi:
-            include.append({"name": n, "build": build, "pack": pack, "poi": poi})
+        if build or pack or poi or glyph:
+            include.append({"name": n, "build": build, "pack": pack, "poi": poi, "glyph": glyph})
     made = [f"{d}/{e['name']}" for e in include
-            for d, k in ((b.DIST, "build"), (b.SHEET_DIST, "pack"), (b.POI_DIST, "poi")) if e[k]]
+            for d, k in ((b.DIST, "build"), (b.SHEET_DIST, "pack"), (b.POI_DIST, "poi"), (b.GLYPH_DIST, "glyph"))
+            if e[k]]
     needed = {m.split("/")[0] for m in made}
     releases = [d for d in b.DISTS if d in needed and d not in released]
     return {"matrix": {"include": include}, "made": " ".join(made), "releases": releases, "count": len(include)}
