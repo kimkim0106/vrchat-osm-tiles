@@ -24,11 +24,13 @@ manifest の version は 2 (シートの並び) のままで、labelCategories (
 ラベル頂点の T3.B に種類の番号が入るので、種類ごとの色分けと出し入れ (_LabelMask) のできるシェーダーで読む。
 v3 は v1 とは別に焼く (同じ MBTiles から。--poi)。
 v4 はタイルの形式 2 (vmt_bake.py --tile-format 2 --glyphs glyphs_v4.txt --langs ja,en。ラベルの字の形はタイルに持たず、
-ワールドが実行時に作る共有の字のアトラスの番号で持つ。日本語と英語の塊。広域の地図は日本語だけ) の POI 入りのシート。
+ワールドが実行時に作る共有の字のアトラスから Unicode の文字コードで引く。日本語と英語の塊。広域の地図は日本語だけ) の POI 入りのシート。
 地域をまたいで同じタイルを 1 回だけ焼いて 1 か所に置く (焼き方と置き方は vmt_v4.py。build_site.py は MBTiles と、
 まとめた .bin と索引だけを受け持つ)。manifest の version は 2 (シートの並び) のままで、tileFormat 2・labelLanguages・
-glyphSet (字の並びの字数と SHA-1) が付く。
-**glyphs_v4.txt は 1 字も変えない** (並びがマスの番号。ワールドの並びと違うと字が化ける。足すときは末尾だけ)。
+glyphSet (焼くときに使った字の一覧の字数と SHA-1)・sharedGlyphs (タイルが文字コードで指す字) が付く。
+glyphs_v4.txt はワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じものにする)。これに無い字はタイルのアトラスに入れる。
+タイルは文字コードで持つので並びの順番には縛られないが、ワールドが持っていない字を共有の字として焼くと、その字は出ない
+(ワールドは床を作るときに sharedGlyphs を全部持っているか照合する)。
 
 焼いた地域は固定する。ワールドは作るときに manifest の頂点数を焼き込むので、同じ URL の中身を焼き直すと
 頂点が増えたタイルで三角形が欠ける。Actions は焼いた地域を Release (タグ = 版) に保存し、次からはそれを戻して配る。
@@ -87,7 +89,7 @@ SHEET_DIST = f"v{SHEET_VERSION}"
 POI_DIST = "v3"                # POI 入りのシート (形式は v2 と同じ。manifest の version も 2)
 GLYPH_DIST = "v4"              # タイルの形式 2 (共有の字のアトラス) の POI 入りのシート。manifest の version は 2
 GLYPH_TILE_FORMAT = 2          # vmt_bake.py --tile-format (manifest の tileFormat で確かめる)
-GLYPH_FILE = "glyphs_v4.txt"   # 共有の字のアトラスの並び。ワールドと同じもの (1 字も変えない)
+GLYPH_FILE = "glyphs_v4.txt"   # ワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じもの)
 GLYPH_LANGS = "ja,en"          # ラベルの言語の塊 (広域の地図は vmt_bake.py が ja だけにする)
 DISTS = [DIST, SHEET_DIST, POI_DIST, GLYPH_DIST]  # 配る版 (check_site.py が確かめる)
 SHEET_DISTS = (SHEET_DIST, POI_DIST, GLYPH_DIST)  # シートの版 (binGroups を作れる版)
@@ -302,7 +304,7 @@ def glyph_set():
 
 def bake_tiles(region, mbtiles, tools, out, jobs, poi, glyph=False, extra=()):
     """vmt_bake.py で out に焼き、manifest を返す。poi が False なら POI を入れない (v1)。
-    glyph ならタイルの形式 2 (共有の字のアトラスの番号。v4) で焼く。extra は vmt_bake.py に足す引数。"""
+    glyph ならタイルの形式 2 (共有の字のアトラスの字を文字コードで持つ。v4) で焼く。extra は vmt_bake.py に足す引数。"""
     if os.path.exists(out):
         shutil.rmtree(out)
     cmd = [sys.executable, os.path.join(HERE, "vmt_bake.py"), mbtiles, out,
