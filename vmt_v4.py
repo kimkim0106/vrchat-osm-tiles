@@ -236,13 +236,14 @@ def place_all(regions, inventory, cand_files, frozen_files, tools):
     """
     vb = _vb()
     own = owners(regions, inventory)
-    by_name = {r["name"]: r for r in regions}
-    groups = {}   # (wide, z, 言語の番号) -> [候補]
+    groups = {}   # (wide, z, 言語の番号) -> [候補]。広域か都市かはズームで決まる (WIDE_MAX_ZOOM)
     baking = set()
     for path in cand_files:
         c = load_gz(path)
         baking.add(c["region"])
         for z, per_lang in c["zooms"].items():
+            if c["wide"] != (int(z) <= WIDE_MAX_ZOOM):
+                sys.exit(f"{c['region']}: z{z} の候補の作り方 ({'広域' if c['wide'] else '都市'}) がズームと合わない")
             for li, cands in enumerate(per_lang):
                 groups.setdefault((c["wide"], int(z), li), []).extend(cands)
     fixed = {}
@@ -250,17 +251,19 @@ def place_all(regions, inventory, cand_files, frozen_files, tools):
         name = os.path.basename(path).split(".")[0]
         if name in baking:
             continue  # 焼き直す地域の前の配置は使わない
-        r = by_name.get(name)
-        wide = bool(r and r.get("wide"))
+        # 広域か都市かはズームで決める (regions.json から消した地域も、同じズームの候補と合わせて重なりと同名を調べる。
+        # 地域の定義で決めると、消した広域の地域が都市とみなされた。Codex のレビューで指摘)
         for key, per_lang in load_gz(path).items():
             z = int(key.split("/")[0])
             for li, labs in enumerate(per_lang):
-                fixed.setdefault((wide, z, li), []).extend(labs)
+                fixed.setdefault((z <= WIDE_MAX_ZOOM, z, li), []).extend(labs)
     plans = {n: {} for n in baking}
     for key in sorted(set(groups) | set(fixed)):
         wide, z, li = key
         cands, fx = groups.get(key, []), fixed.get(key, [])
-        label_setup(next(r for r in regions if b.wants_dist(r, DIST) and bool(r.get("wide")) == wide), tools)
+        # 字の幅を測るフォントの設定 (その作り方の地域が regions.json に無ければ、どれか)
+        v4r = v4_regions(regions)
+        label_setup(next((r for r in v4r if bool(r.get("wide")) == wide), v4r[0]), tools)
         if wide:
             # 国土数値情報の点と同名・先に出た同名の OpenStreetMap の島・海・湖は出さない (wide_candidates と同じ。地域をまたいで)
             names = {c["name"] for c in cands if not c.get("osm")} | {c["name"] for c in fx}
