@@ -348,8 +348,10 @@ def bake(region, regions, inventory, mbtiles, plan_path, site, tools, work, jobs
 # ---------------------------------------------------------------- 4. 床が読む manifest
 
 def own_dirs(regions, site, r2):
-    """{地域: (host, own のディレクトリ)}。Pages の地域の own/ は、まとめた .bin のために R2 側にも manifest の写しができる
-    (vmt_bingroup.py) ので、地域の host で選ぶ (regions.json に無い地域は、シートがある方)。"""
+    """{地域: (host, own のディレクトリ)}。host は置き場所 (URL を決める)。Pages の地域の own/ は、まとめた .bin のために
+    R2 側にも manifest の写しができる (vmt_bingroup.py) ので、置き場所の側を選ぶ。
+    r2 を渡さない (手元で --r2 なしに索引を作る) ときは、R2 に置く地域の持ち物も site/ にあるので、それを使う
+    (URL は R2 のまま。Codex のレビューで指摘)。"""
     hosts = {r["name"]: b.host_of(r, DIST) for r in regions}
     found = {}
     for host, root in (("pages", site), ("r2", r2)):
@@ -364,9 +366,10 @@ def own_dirs(regions, site, r2):
         if host is None:  # regions.json から消した地域は、残した定義の host
             with open(os.path.join(next(iter(where.values())), "manifest.json"), encoding="utf-8") as f:
                 host = b.host_of(json.load(f).get("sourceRegion") or {}, DIST)
-        if host not in where:
+        d = where.get(host) or (where.get("pages") if not r2 else None)
+        if d is None:
             sys.exit(f"{name}: v4 の持ち物が {host} の側に無い")
-        out[name] = (host, where[host])
+        out[name] = (host, d)
     return out
 
 
@@ -385,7 +388,7 @@ def assemble(regions, site, r2, pages_url, r2_url):
             m = json.load(f)
         base = (pages_url if host == "pages" else r2_url)
         if not base:
-            sys.exit(f"{name}: {host} の URL が無い (--pages-url / --bin-groups)")
+            sys.exit(f"{name}: {host} の URL が無い (--pages-url / --r2-url (配るときは --bin-groups))")
         batches[name] = (m, base.rstrip("/") + f"/{DIST}/{name}/own/")
         for i, t in enumerate(m["tiles"]):
             k = (t["z"], t["x"], t["y"])

@@ -537,6 +537,9 @@ def main():
     ap.add_argument("--poi", action="store_true", help="v1 の代わりに v3 (POI 入りのシート) を焼く")
     ap.add_argument("--pages-url", default=default_pages_url(),
                     help="Pages の公開 URL (v4 の床の manifest がシートを絶対 URL で指すため)")
+    ap.add_argument("--r2-url", default=os.environ.get("R2_PUBLIC_URL") or None,
+                    help="R2 の公開 URL (v4 の床の manifest がシートを絶対 URL で指すため。--bin-groups があればそれ。"
+                         "既定は環境変数 R2_PUBLIC_URL)")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。planetiler を回さずこの MBTiles を使う")
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
     ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
@@ -589,7 +592,7 @@ def main():
             bin_groups(args.site, args.r2, regions, args.bin_groups)
     if args.index_only or args.r2:
         import vmt_v4
-        vmt_v4.assemble(regions, args.site, args.r2, args.pages_url, args.bin_groups)
+        vmt_v4.assemble(regions, args.site, args.r2, args.pages_url, args.bin_groups or args.r2_url)
     if args.r2:
         r2_total = write_indexes(args.r2)
         print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")

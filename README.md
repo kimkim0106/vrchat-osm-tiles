@@ -292,7 +292,8 @@ v4 は `vmt_v4.py` で 3 段に焼きます (焼いた地域があれば、Relea
 .venv/bin/python vmt_v4.py candidates --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --out build/v4/cands
 .venv/bin/python vmt_v4.py labels --tools build/tools --cands build/v4/cands --plans build/v4/plans
 .venv/bin/python vmt_v4.py bake --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --plans build/v4/plans --site site
-.venv/bin/python build_site.py --site site --index-only    # 床が読む manifest (site/v4/tokyo/manifest.json) と索引
+.venv/bin/python build_site.py --site site --index-only --r2-url https://<R2 の公開 URL>/
+    # 床が読む manifest (site/v4/tokyo/manifest.json) と索引。v4 は R2 に置くので、シートの URL は R2 の公開 URL
 ```
 Release の地域を手元に戻すには `gh release download v1 -p '*.tar.gz'` で取って `site/` に展開し、`build_site.py --site site --index-only` で索引を作ります。
 
