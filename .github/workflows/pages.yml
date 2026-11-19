@@ -29,7 +29,6 @@ on:
       - vmt_pack.py
       - vmt_v4.py
       - vmt_bingroup.py
-      - glyphs_v4.txt
       - build_site.py
       - plan_build.py
       - check_site.py
@@ -42,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       rebuild:
-        description: "焼き直す地域 (カンマ区切り、all で全部)。焼き直すと、その地域を使う既存のワールドは manifest を入れ替えて上げ直す必要がある"
+        description: "焼き直す地域 (カンマ区切り、all で全部。v4:all のように版を付けるとその版だけ)。焼き直すと、その地域を使う既存のワールドは manifest を入れ替えて上げ直す必要がある"
         required: false
         default: ""
 

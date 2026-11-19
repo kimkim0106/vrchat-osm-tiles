@@ -25,14 +25,12 @@ v3 は POI 入りで焼いたタイル (配らない。work/poi/ に置いてす
 manifest の version は 2 (シートの並び) のままで、labelCategories (ラベルの種類の一覧) が付く。
 ラベル頂点の T3.B に種類の番号が入るので、種類ごとの色分けと出し入れ (_LabelMask) のできるシェーダーで読む。
 v3 は v1 とは別に焼く (同じ MBTiles から。--poi)。
-v4 はタイルの形式 2 (vmt_bake.py --tile-format 2 --glyphs glyphs_v4.txt --langs ja,en。ラベルの字の形はタイルに持たず、
+v4 はタイルの形式 2 (vmt_bake.py --tile-format 2 --langs ja,en。ラベルの字の形はタイルに持たず、
 ワールドが実行時に作る共有の字のアトラスから Unicode の文字コードで引く。日本語と英語の塊。広域の地図は日本語だけ) の POI 入りのシート。
 地域をまたいで同じタイルを 1 回だけ焼いて 1 か所に置く (焼き方と置き方は vmt_v4.py。build_site.py は MBTiles と、
 まとめた .bin と索引だけを受け持つ)。manifest の version は 2 (シートの並び) のままで、tileFormat 2・labelLanguages・
-glyphSet (焼くときに使った字の一覧の字数と SHA-1)・sharedGlyphs (タイルが文字コードで指す字) が付く。
-glyphs_v4.txt はワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じものにする)。これに無い字はタイルのアトラスに入れる。
-タイルは文字コードで持つので並びの順番には縛られないが、ワールドが持っていない字を共有の字として焼くと、その字は出ない
-(ワールドは床を作るときに sharedGlyphs を全部持っているか照合する)。
+sharedGlyphs (タイルが文字コードで指す字。ワールドは床の字としてこれだけを作る) が付く。字はどれも文字コードで持つ
+(2026-11-20 から。それまでは字の一覧 glyphs_v4.txt に無い字だけタイルのアトラスに入れ、manifest に一覧の記録 glyphSet を書いていた)。
 
 焼いた地域は固定する。ワールドは作るときに manifest の頂点数を焼き込むので、同じ URL の中身を焼き直すと
 頂点が増えたタイルで三角形が欠ける。Actions は焼いた地域を Release (タグ = 版) に保存し、次からはそれを戻して配る。
@@ -92,7 +90,6 @@ SHEET_DIST = f"v{SHEET_VERSION}"
 POI_DIST = "v3"                # POI 入りのシート (形式は v2 と同じ。manifest の version も 2)
 GLYPH_DIST = "v4"              # タイルの形式 2 (共有の字のアトラス) の POI 入りのシート。manifest の version は 2
 GLYPH_TILE_FORMAT = 2          # vmt_bake.py --tile-format (manifest の tileFormat で確かめる)
-GLYPH_FILE = "glyphs_v4.txt"   # ワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じもの)
 GLYPH_LANGS = "ja,en"          # ラベルの言語の塊 (広域の地図は vmt_bake.py が ja だけにする)
 GLYPH_FLOORS = "floors"        # v4 の床の manifest を置くディレクトリ (v4/floors/<地域>/)
 DISTS = [DIST, SHEET_DIST, POI_DIST, GLYPH_DIST]  # 配る版 (check_site.py が確かめる)
@@ -306,20 +303,9 @@ def validate_regions(regions):
     vmt_v4.validate(regions)
 
 
-def glyph_set():
-    """glyphs_v4.txt の字数と SHA-1 (vmt_bake.py が manifest の glyphSet に書くものと同じ求め方)。"""
-    import hashlib
-    with open(os.path.join(HERE, GLYPH_FILE), encoding="utf-8") as f:
-        lines = f.read().split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    chars = "".join(lines)
-    return {"file": GLYPH_FILE, "count": len(chars), "sha1": hashlib.sha1(chars.encode("utf-8")).hexdigest()}
-
-
 def bake_tiles(region, mbtiles, tools, out, jobs, poi, glyph=False, extra=()):
     """vmt_bake.py で out に焼き、manifest を返す。poi が False なら POI を入れない (v1)。
-    glyph ならタイルの形式 2 (共有の字のアトラスの字を文字コードで持つ。v4) で焼く。extra は vmt_bake.py に足す引数。"""
+    glyph ならタイルの形式 2 (ラベルの字を文字コードで持ち、ワールドの共有の字のアトラスから読む。v4) で焼く。extra は vmt_bake.py に足す引数。"""
     if os.path.exists(out):
         shutil.rmtree(out)
     cmd = [sys.executable, os.path.join(HERE, "vmt_bake.py"), mbtiles, out,
@@ -328,7 +314,7 @@ def bake_tiles(region, mbtiles, tools, out, jobs, poi, glyph=False, extra=()):
     if region.get("lang"):
         cmd += ["--lang", region["lang"]]
     if glyph:
-        cmd += ["--tile-format", str(GLYPH_TILE_FORMAT), "--glyphs", os.path.join(HERE, GLYPH_FILE), "--langs", GLYPH_LANGS]
+        cmd += ["--tile-format", str(GLYPH_TILE_FORMAT), "--langs", GLYPH_LANGS]
     if not poi:
         cmd.append("--no-poi")
     if region.get("wideLabels"):
@@ -350,8 +336,6 @@ def bake_tiles(region, mbtiles, tools, out, jobs, poi, glyph=False, extra=()):
     if glyph:
         if m.get("tileFormat") != GLYPH_TILE_FORMAT:
             sys.exit(f"{region['name']}: manifest の tileFormat {m.get('tileFormat')} が {GLYPH_TILE_FORMAT} と違う")
-        if m.get("glyphSet") != glyph_set():
-            sys.exit(f"{region['name']}: manifest の glyphSet {m.get('glyphSet')} が {GLYPH_FILE} と違う")
     elif m.get("tileFormat", 1) != 1:
         sys.exit(f"{region['name']}: 形式 1 で焼いたのに tileFormat {m.get('tileFormat')}")
     return m
@@ -383,7 +367,7 @@ def pack_dir(region, src, out):
     if m.get("version") != SHEET_VERSION:
         sys.exit(f"{region['name']}: {out} の manifest の version が {SHEET_VERSION} ではない")
     src_m = json.load(open(os.path.join(src, "manifest.json"), encoding="utf-8"))
-    for key in ("tileFormat", "labelLanguages", "glyphSet"):
+    for key in ("tileFormat", "labelLanguages", "sharedGlyphs"):
         if src_m.get(key) != m.get(key):
             sys.exit(f"{region['name']}: vmt_pack.py が manifest の {key} を通さなかった")
     write_region_json(out, region_entry(region, m))
