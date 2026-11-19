@@ -23,8 +23,10 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v3/<地域>/...                  v
 <R2 の公開 URL>/v2/index.json
 <R2 の公開 URL>/v2/<地域>/manifest.json                                       形は Pages の v2 と同じ
 <R2 の公開 URL>/v4/index.json                                                 v4 はどの地域も R2 (下)
-<R2 の公開 URL>/v4/<地域>/manifest.json                                       床が読む manifest。シートは絶対 URL
-<R2 の公開 URL>/v4/<地域>/own/sheets/<z>/<k>.png                              その地域が持ち主のタイルのシート
+<R2 の公開 URL>/v4/floors/<地域>/manifest.json                                床が読む manifest。シートは絶対 URL
+<R2 の公開 URL>/v4/sheets/<z>/<ハッシュ>.png                                  シート (地域をまたいで共有。名前は中身のハッシュ)
+<R2 の公開 URL>/v4/sheets/<z>/<ハッシュ>.bin                                  同じシートの生データ
+<R2 の公開 URL>/v4/bingroups/<z>/<ハッシュ>.bin                               まとめた .bin
 ```
 
 **R2 は VRChat の信頼済みドメインではありません。** R2 の地域は、VRChat の設定で「Allow Untrusted URLs」をオンにした人にしか読めません。
@@ -140,17 +142,22 @@ v3 までは地域ごとに範囲のタイルを全部焼いていたので、�
   「Allow Untrusted URLs」がオンの人にしか読めません。
 - 持ち主: 焼いた地域は、焼いたタイルの一覧 (Release の `<地域>.own.json.gz`) を残し、そのタイルの持ち主であり続けます。
   どの一覧にも無いタイルは、範囲に含む地域を Pages の地域 → regions.json の並び、の順に並べた最初の地域が持ち主です。
-  持ち主だけがそのタイルを焼いて `v4/<持ち主>/own/` に置きます。東京 (Pages) の床が R2 のシートを指さないよう、Pages の地域を先にして
+  持ち主だけがそのタイルを焼きます (Release の `<持ち主>.tar.gz` の `v4/<持ち主>/own/`)。東京 (Pages) の床が R2 のシートを指さないよう、Pages の地域を先にして
   焼きました (その後で v4 は全部 R2 に置くことにしたので、今は持ち主の順を決めるだけ)。
   地域を足しても、一部の地域だけ焼けて実行し直しても、焼いたタイルは変わりません。glyph job は一覧とラベルを先に、
   `<地域>.tar.gz` (plan が「焼いた」とみなす印) を最後に保存します。
 - regions.json から消した地域も、持ち物の manifest に残した定義 (`sourceRegion`) で、床の manifest を作って配り続けます。
 - ラベル: 持ち主の境目で重ならないよう、Actions はラベルの候補を地域ごとに集め (bake job)、全地域をまとめて置き (labels job)、
   地域ごとに持ち物のタイルを焼きます (glyph job)。Release にある地域の置いたラベル (`<地域>.labels.json.gz`) は動かしません。
-- 床が読む manifest (`v4/<地域>/manifest.json`) は配るときに作ります。範囲のタイルを全部並べ、シートとまとめた .bin は
-  持ち主の `own/` の絶対 URL で指します (`binGroupBase` は空)。R2 には `own/` を地域と同じ単位で上げ (`own/manifest.json` が
-  上げ終わった印)、床の manifest と region.json は毎回上げ直します (`r2_upload.py`)。
-- v4 の地域を焼き直すと、その地域が持つタイルを指すほかの地域の床も変わります (頂点数を焼き込んだワールドは作り直す)。
+- 配る形 (2026-11-19 から): 持ち主は焼く単位で、URL には出しません。シートとまとめた .bin は地域をまたいで共有するので、
+  ズームごとのディレクトリに中身のハッシュ (SHA-256 の先頭 16 桁) の名前で置きます (`v4/sheets/<z>/`、`v4/bingroups/<z>/`)。
+  同じ中身なら同じ URL、焼き直して中身が変われば別の URL です。R2 には無いものだけを上げ、消しません
+  (古いワールドが読むファイルは残る)。地域ごとの置き方 (`v4/<地域>/own/`) で R2 に上げていたものは、どのワールドも読む前に消しました
+  (`r2_upload.py --delete-legacy v4`)。
+- 床が読む manifest (`v4/floors/<地域>/manifest.json`) は配るときに作ります。範囲のタイルを全部並べ、シートとまとめた .bin は
+  絶対 URL で指します (`binGroupBase` は空)。床の manifest と region.json は毎回上げ直します (`r2_upload.py`)。
+- v4 の地域を焼き直すと、その地域が持つタイルを指すほかの地域の床の manifest も変わります (頂点数を焼き込んだワールドは作り直す。
+  古いワールドは前のファイルを読み続ける)。
 - 持ち主ごとに元データの日付が違うので、持ち主の境目で道などが少しずれることがあります。
 
 今の地域は 47 都道府県の県庁所在地です (床マップに合わせて、どれも z13 で 10 × 11 枚 = 床 20 m × 22 m)。
@@ -293,7 +300,7 @@ v4 は `vmt_v4.py` で 3 段に焼きます (焼いた地域があれば、Relea
 .venv/bin/python vmt_v4.py labels --tools build/tools --cands build/v4/cands --plans build/v4/plans
 .venv/bin/python vmt_v4.py bake --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --plans build/v4/plans --site site
 .venv/bin/python build_site.py --site site --index-only --r2-url https://<R2 の公開 URL>/
-    # 床が読む manifest (site/v4/tokyo/manifest.json) と索引。v4 は R2 に置くので、シートの URL は R2 の公開 URL
+    # 配る形 (site/v4/sheets/ と site/v4/floors/tokyo/manifest.json) と索引。v4 は R2 に置くので、シートの URL は R2 の公開 URL
 ```
 Release の地域を手元に戻すには `gh release download v1 -p '*.tar.gz'` で取って `site/` に展開し、`build_site.py --site site --index-only` で索引を作ります。
 

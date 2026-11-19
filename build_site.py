@@ -12,8 +12,10 @@
   site/v2/<name>/sheets/z/k.png       シート (複数タイル = 1 画像)。v1 のタイルをまとめたもので、中身は同じ
   site/v2/<name>/sheets/z/k.bin       同じシートの生データ (regions.json の binZooms のズームだけ)
   site/v3/<name>/...                  v2 と同じ並び。POI (駅・観光地・店など) 入りのタイルをまとめたシート
-  site/v4/<name>/manifest.json        床が読む manifest (範囲のタイルを全部並べ、シートは持ち主の own/ の絶対 URL で指す)
-  site/v4/<name>/own/...              その地域が持ち主のタイルだけのシート (形式 2)。vmt_v4.py の冒頭
+  site/v4/floors/<name>/manifest.json 床が読む manifest (範囲のタイルを全部並べ、シートは絶対 URL で指す)
+  site/v4/sheets/<z>/<hash>.png       シート (形式 2)。地域をまたいで 1 か所に、中身のハッシュの名前で置く (vmt_v4.py の冒頭)
+  site/v4/sheets/<z>/<hash>.bin       同じシートの生データ
+  (焼いた直後と Release から戻した直後は site/v4/<name>/own/ に持ち物がある。配る形にすると消す)
 
 v1 / v2 は VMT-DT の形式の版 (manifest の version、テクスチャのヘッダ列 1) と同じ番号。
 ワールドが焼き込む URL に入るので、読み方の変わる変更は版を上げて別のディレクトリに出し、古い版も配り続ける。
@@ -92,6 +94,7 @@ GLYPH_DIST = "v4"              # タイルの形式 2 (共有の字のアトラ�
 GLYPH_TILE_FORMAT = 2          # vmt_bake.py --tile-format (manifest の tileFormat で確かめる)
 GLYPH_FILE = "glyphs_v4.txt"   # ワールドが共有の字のアトラスに持つ字の一覧 (ワールドと同じもの)
 GLYPH_LANGS = "ja,en"          # ラベルの言語の塊 (広域の地図は vmt_bake.py が ja だけにする)
+GLYPH_FLOORS = "floors"        # v4 の床の manifest を置くディレクトリ (v4/floors/<地域>/)
 DISTS = [DIST, SHEET_DIST, POI_DIST, GLYPH_DIST]  # 配る版 (check_site.py が確かめる)
 SHEET_DISTS = (SHEET_DIST, POI_DIST, GLYPH_DIST)  # シートの版 (binGroups を作れる版)
 WIDE_DISTS = (POI_DIST, GLYPH_DIST)               # 広域の地図で作れる版
@@ -405,22 +408,14 @@ def prune(site, regions):
 
 
 def move_r2(site, r2, regions):
-    """host が r2 の地域 (版ごとの置き場所 DIST_HOSTS も見る) を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。"""
+    """host が r2 の地域 (版ごとの置き場所 DIST_HOSTS も見る) を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。
+    v4 は地域ごとに分けて置かないので移さない (vmt_v4.publish が床ごとの置き場所に置く)。"""
     if os.path.exists(r2):
         shutil.rmtree(r2)
     os.makedirs(r2)
-    # regions.json から消した v4 の地域は、持ち物の manifest に残した定義 (sourceRegion) の host で決める
-    known = {r["name"] for r in regions}
-    for path in glob.glob(os.path.join(site, GLYPH_DIST, "*", "own", "manifest.json")):
-        name = os.path.basename(os.path.dirname(os.path.dirname(path)))
-        if name not in known:
-            with open(path, encoding="utf-8") as f:
-                src = json.load(f).get("sourceRegion")
-            if src:
-                regions = regions + [src]
     for r in regions:
         for dist in dist_dirs(site):
-            if host_of(r, dist) != "r2":
+            if dist == GLYPH_DIST or host_of(r, dist) != "r2":
                 continue
             src = os.path.join(site, dist, r["name"])
             if os.path.isdir(src):
@@ -441,7 +436,8 @@ def bin_groups(site, r2, regions, base_url):
         if not cfg:
             continue
         for dist in cfg["dists"]:
-            # v4 はその地域が持ち主のシート (own/) をまとめる (床の manifest は後で vmt_v4.assemble が作る)
+            # v4 はその地域が持ち主のシート (own/) をまとめ、.bin も own/ に書く (vmt_v4.publish が中身のハッシュの名前で
+            # R2 に置き直す。--base-url は使われない)
             sub = f"{r['name']}/own" if dist == GLYPH_DIST else r["name"]
             src = next((os.path.join(root, dist, sub) for root in (site, r2)
                         if os.path.exists(os.path.join(root, dist, sub, "manifest.json"))), None)
@@ -452,7 +448,13 @@ def bin_groups(site, r2, regions, base_url):
                     continue  # 持ち物が無い
             run([sys.executable, os.path.join(HERE, "vmt_bingroup.py"), src,
                  "--zooms", ",".join(str(z) for z in cfg["zooms"]),
-                 "--base-url", f"{base_url}{dist}/{sub}/", "--bins", os.path.join(r2, dist, sub)])
+                 "--base-url", f"{base_url}{dist}/{sub}/",
+                 "--bins", src if dist == GLYPH_DIST else os.path.join(r2, dist, sub)])
+
+
+def tree_bytes(root):
+    """root の下のファイルの大きさの合計。"""
+    return sum(os.path.getsize(os.path.join(d, n)) for d, _, files in os.walk(root) for n in files)
 
 
 def dist_dirs(site):
@@ -477,7 +479,8 @@ def write_indexes(site, tools=False):
     total = 0
     for dist in dist_dirs(site):
         entries = []
-        for path in sorted(glob.glob(os.path.join(site, dist, "*", "region.json"))):
+        for path in sorted(glob.glob(os.path.join(site, dist, "*", "region.json")) +
+                           glob.glob(os.path.join(site, dist, GLYPH_FLOORS, "*", "region.json"))):
             with open(path, encoding="utf-8") as f:
                 entries.append(json.load(f))
         index = {"format": FORMAT, "version": int(dist[1:]), "generated": generated,
@@ -592,11 +595,13 @@ def main():
             bin_groups(args.site, args.r2, regions, args.bin_groups)
     if args.index_only or args.r2:
         import vmt_v4
-        vmt_v4.assemble(regions, args.site, args.r2, args.pages_url, args.bin_groups or args.r2_url)
+        vmt_v4.publish(regions, args.site, args.r2, args.pages_url, args.bin_groups or args.r2_url)
     if args.r2:
-        r2_total = write_indexes(args.r2)
-        print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
-    total = write_indexes(args.site, tools=True)
+        write_indexes(args.r2)
+        print(f"r2 total {tree_bytes(args.r2) / 1e6:.1f} MB -> {args.r2}")
+    write_indexes(args.site, tools=True)
+    # 置いてあるファイルの大きさで数える (v4 の床はシートを共有するので、索引の地域の大きさを足すと重なる)
+    total = tree_bytes(args.site)
     print(f"site total {total / 1e6:.1f} MB -> {args.site}")
     # 容量は Pages に載せる形 (--prune / --r2 の後) で確かめる。焼いた直後の site/ には配らない版や R2 の地域も入っている
     if args.index_only and total > SITE_LIMIT:
