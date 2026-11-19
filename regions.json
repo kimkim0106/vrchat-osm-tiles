@@ -17,7 +17,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -29,10 +30,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "aomori",
@@ -50,7 +48,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -62,10 +61,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "morioka",
@@ -83,7 +79,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -95,10 +92,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "sendai",
@@ -117,7 +111,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -129,10 +124,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "akita",
@@ -150,7 +142,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -162,10 +155,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "yamagata",
@@ -183,7 +173,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -195,10 +186,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "fukushima",
@@ -216,7 +204,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -228,10 +217,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "mito",
@@ -249,7 +235,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -261,10 +248,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "utsunomiya",
@@ -282,7 +266,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -294,10 +279,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "maebashi",
@@ -315,7 +297,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -327,10 +310,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "saitama",
@@ -348,7 +328,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -360,10 +341,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "chiba",
@@ -381,7 +359,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -393,10 +372,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "tokyo",
@@ -415,7 +391,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -426,10 +403,7 @@
      13,
      14
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "yokohama",
@@ -447,7 +421,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -459,10 +434,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "niigata",
@@ -481,7 +453,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -493,10 +466,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "toyama",
@@ -514,7 +484,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -526,10 +497,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kanazawa",
@@ -547,7 +515,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -559,10 +528,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "fukui",
@@ -580,7 +546,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -592,10 +559,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kofu",
@@ -613,7 +577,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -625,10 +590,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "nagano",
@@ -646,7 +608,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -658,10 +621,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "gifu",
@@ -679,7 +639,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -691,10 +652,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "shizuoka",
@@ -712,7 +670,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -724,10 +683,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "nagoya",
@@ -746,7 +702,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -758,10 +715,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "tsu",
@@ -779,7 +733,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -791,10 +746,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "otsu",
@@ -812,7 +764,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -824,10 +777,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kyoto",
@@ -845,7 +795,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -857,10 +808,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "osaka",
@@ -879,7 +827,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -891,10 +840,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kobe",
@@ -913,7 +859,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -925,10 +872,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "nara",
@@ -946,7 +890,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -958,10 +903,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "wakayama",
@@ -979,7 +921,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -991,10 +934,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "tottori",
@@ -1012,7 +952,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1024,10 +965,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "matsue",
@@ -1045,7 +983,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1057,10 +996,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "okayama",
@@ -1078,7 +1014,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1090,10 +1027,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "hiroshima",
@@ -1112,7 +1046,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1124,10 +1059,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "yamaguchi",
@@ -1145,7 +1077,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1157,10 +1090,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "tokushima",
@@ -1179,7 +1109,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1191,10 +1122,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "takamatsu",
@@ -1212,7 +1140,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1224,10 +1153,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "matsuyama",
@@ -1245,7 +1171,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1257,10 +1184,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kochi",
@@ -1278,7 +1202,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1290,10 +1215,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "fukuoka",
@@ -1312,7 +1234,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1324,10 +1247,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "saga",
@@ -1345,7 +1265,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1357,10 +1278,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "nagasaki",
@@ -1378,7 +1296,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1390,10 +1309,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kumamoto",
@@ -1411,7 +1327,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1423,10 +1340,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "oita",
@@ -1444,7 +1358,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1456,10 +1371,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "miyazaki",
@@ -1477,7 +1389,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1489,10 +1402,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "kagoshima",
@@ -1510,7 +1420,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1522,10 +1433,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "naha",
@@ -1543,7 +1451,8 @@
     13
    ],
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1555,10 +1464,7 @@
      14
     ]
    },
-   "host": "r2",
-   "releaseOnly": [
-    "v4"
-   ]
+   "host": "r2"
   },
   {
    "name": "wide-japan",
@@ -1579,7 +1485,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1590,10 +1497,7 @@
      7,
      8
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-hokkaido",
@@ -1614,7 +1518,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1625,10 +1530,7 @@
      9,
      10
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-tohoku",
@@ -1649,7 +1551,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1660,10 +1563,7 @@
      9,
      10
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-kanto",
@@ -1684,7 +1584,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1695,10 +1596,7 @@
      9,
      10
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-chubu",
@@ -1719,7 +1617,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1730,10 +1629,7 @@
      9,
      10
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-kinki",
@@ -1754,7 +1650,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1765,10 +1662,7 @@
      10,
      11
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-chugoku",
@@ -1789,7 +1683,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1800,10 +1695,7 @@
      10,
      11
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-shikoku",
@@ -1824,7 +1716,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1835,10 +1728,7 @@
      10,
      11
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-kyushu",
@@ -1859,7 +1749,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1870,10 +1761,7 @@
      9,
      10
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-okinawa",
@@ -1894,7 +1782,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1905,10 +1794,7 @@
      9,
      10
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   },
   {
    "name": "wide-izu-ogasawara",
@@ -1929,7 +1815,8 @@
    ],
    "labelVerts": 49140,
    "dists": [
-    "v3"
+    "v3",
+    "v4"
    ],
    "binGroups": {
     "dists": [
@@ -1940,10 +1827,7 @@
      8,
      9
     ]
-   },
-   "releaseOnly": [
-    "v4"
-   ]
+   }
   }
  ]
 }

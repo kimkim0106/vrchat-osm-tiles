@@ -13,7 +13,8 @@
     一部の地域だけ焼けて実行し直しても、焼いたタイルは変わらない (Release に地域があるかで決めると、焼けなかった地域の
     分を焼いた隣の地域の持ち物とみなして穴が空く。Codex のレビューで指摘)。
     Pages を先にするのは、信頼済みのドメインで読める地域 (東京) の床が、R2 (「Allow Untrusted URLs」が要る) の
-    シートを指さないようにするため。
+    シートを指さないようにするため (焼いた後で、v4 はどの地域も R2 に置くことにした (build_site.DIST_HOSTS)。
+    今は持ち主の順を決めるだけで、置き場所には効かない。焼いたタイルの持ち主は変えない)。
   - ラベル: 持ち主の境目で重ならないよう、地域をまたいでズームごとにまとめて置く。手順は 3 段:
       candidates  地域ごとに、持ち物のタイルのラベルの候補を MBTiles から集める (並行)
       labels      この実行で焼く地域の候補をすべて合わせて置く (1 回)。Release にある地域の置いたラベル (<地域>.labels.json.gz)
@@ -349,7 +350,7 @@ def bake(region, regions, inventory, mbtiles, plan_path, site, tools, work, jobs
 def own_dirs(regions, site, r2):
     """{地域: (host, own のディレクトリ)}。Pages の地域の own/ は、まとめた .bin のために R2 側にも manifest の写しができる
     (vmt_bingroup.py) ので、地域の host で選ぶ (regions.json に無い地域は、シートがある方)。"""
-    hosts = {r["name"]: r.get("host", "pages") for r in regions}
+    hosts = {r["name"]: b.host_of(r, DIST) for r in regions}
     found = {}
     for host, root in (("pages", site), ("r2", r2)):
         if not root:
@@ -362,7 +363,7 @@ def own_dirs(regions, site, r2):
         host = hosts.get(name)
         if host is None:  # regions.json から消した地域は、残した定義の host
             with open(os.path.join(next(iter(where.values())), "manifest.json"), encoding="utf-8") as f:
-                host = (json.load(f).get("sourceRegion") or {}).get("host", "pages")
+                host = b.host_of(json.load(f).get("sourceRegion") or {}, DIST)
         if host not in where:
             sys.exit(f"{name}: v4 の持ち物が {host} の側に無い")
         out[name] = (host, where[host])

@@ -51,6 +51,7 @@ v3 / v4 は dists か releaseOnly にその版がある地域 (dists が無け�
 配る前に確かめたいとき (R2 の v3 など) に使い、確かめたら dists に移す (Release から戻して配る。焼き直さない)。
 
 regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudflare R2 に置く (Pages の 1 GB に入らないため)。
+v4 は地域の host によらず、どの地域も R2 に置く (DIST_HOSTS)。
 --r2 DIR を付けると、索引を作る前にその地域を site/ から DIR/ に移し、DIR/ にも R2 用の索引を作る。
 DIR/ を R2 に上げるのは r2_upload.py。R2 は VRChat の信頼済みドメインではないので、
 その地域は「Allow Untrusted URLs」をオンにした人にしか読めない。
@@ -96,6 +97,14 @@ SHEET_DISTS = (SHEET_DIST, POI_DIST, GLYPH_DIST)  # シートの版 (binGroups �
 WIDE_DISTS = (POI_DIST, GLYPH_DIST)               # 広域の地図で作れる版
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
 HOSTS = ("pages", "r2")        # regions.json の host (書かなければ pages)
+# 版ごとの置き場所 (地域の host より優先)。v4 は Pages の 1 GB に v3 と一緒に入らないので、どの地域も R2 に置く
+# (2026-11-19、利用者の判断。v4 の床はすべて「Allow Untrusted URLs」がオンの人にしか読めない)
+DIST_HOSTS = {GLYPH_DIST: "r2"}
+
+
+def host_of(region, dist):
+    """その地域のその版の置き場所 (pages / r2)。"""
+    return DIST_HOSTS.get(dist) or region.get("host", "pages")
 
 
 def default_pages_url():
@@ -396,7 +405,7 @@ def prune(site, regions):
 
 
 def move_r2(site, r2, regions):
-    """host が r2 の地域を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。"""
+    """host が r2 の地域 (版ごとの置き場所 DIST_HOSTS も見る) を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。"""
     if os.path.exists(r2):
         shutil.rmtree(r2)
     os.makedirs(r2)
@@ -410,9 +419,9 @@ def move_r2(site, r2, regions):
             if src:
                 regions = regions + [src]
     for r in regions:
-        if r.get("host", "pages") != "r2":
-            continue
         for dist in dist_dirs(site):
+            if host_of(r, dist) != "r2":
+                continue
             src = os.path.join(site, dist, r["name"])
             if os.path.isdir(src):
                 os.makedirs(os.path.join(r2, dist), exist_ok=True)
