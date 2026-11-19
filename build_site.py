@@ -538,7 +538,14 @@ def main():
     ap.add_argument("--r2", default=None, help="host が r2 の地域をこのディレクトリに移し、ここにも索引を作る (Release に保存した後で)")
     ap.add_argument("--bin-groups", default=None, metavar="R2_URL",
                     help="binGroups の地域のまとめた .bin を --r2 のディレクトリに作る。R2 の公開 URL を渡す")
+    ap.add_argument("--fetch-osm", default=None, metavar="AREA",
+                    help="この地域 (regions.json の area) の OSM の元データだけを --work の osm-cache に取る (Actions の osm job)")
     args = ap.parse_args()
+    if args.fetch_osm:
+        url, path = fetch_osm(args.fetch_osm, args.work)
+        if path is None:
+            sys.exit(f"{args.fetch_osm}: 元データの取り方を知らない地域")
+        return
     os.makedirs(args.site, exist_ok=True)
 
     with open(args.regions, encoding="utf-8") as f:

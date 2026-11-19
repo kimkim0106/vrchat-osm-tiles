@@ -63,7 +63,7 @@ Actions が `tools/` をそのままサイトに写します。`tools/` を変�
 - v2 は v1 を `vmt_pack.py` でまとめて作ります。v1 を焼き直すと v2 も作り直します。
 - v3 は v1 とは別に、POI 入りで焼いたタイル (配らない) をまとめて作ります。v1 / v2 は POI を入れずに焼きます (`vmt_bake.py --no-poi`)。
 - Actions は Release の一覧を見て、まだ無い地域だけを焼いて足します (`plan_build.py`)。スクリプトを直して push しても、焼いた地域は変わりません。
-- Actions の job は plan (焼く地域を決め、Release が無ければ作る) → bake (1 地域 = 1 job の matrix。Geofabrik に断られないよう同時に 3 つまで)
+- Actions の job は plan (焼く地域を決め、Release が無ければ作る) → osm (OSM の元データを Geofabrik の地域ごとに 1 回だけ取ってキャッシュに置く。Geofabrik に断られないよう同時に 3 つまで) → bake (1 地域 = 1 job の matrix。元データはキャッシュから戻すので同時に 12 まで)
   → publish (Release から配る版を戻して索引を作り、R2 と Pages に出す) → deploy → check。
   bake の地域が 1 つ失敗しても、ほかの地域は焼いて Release に保存します。そのときは publish に進まないので、「Re-run failed jobs」で続けます。
 - `regions.json` から消しても、Release に残っている地域は配り続けます (古いワールドのため)。止めるには Release のファイルを消します。

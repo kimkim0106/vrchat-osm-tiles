@@ -15,6 +15,8 @@ Release (タグ = 版) には <地域>.tar.gz が並ぶ。その一覧を JSON �
                   glyph = v4 (タイルの形式 2) のラベルの候補を集める (bake job。焼くのは glyph job)
         glyph_matrix  {"include": [{"name": "kobe"}, ...]}  v4 を焼く地域 (glyph job。vmt_v4.py の 3 段目)
         glyph_count   その数
+        osm_matrix    {"include": [{"area": "kansai"}, ...]}  OSM の元データを取る地域 (osm job。1 地域 1 回)
+        osm_count     その数
         made      この実行で作る版と地域 (v3/kobe のように。空白区切り。R2 に上げ直す)
         releases  焼いた地域を保存する版のうち、まだ Release が無いもの (plan job が作る)
         count     matrix の地域の数
@@ -96,8 +98,12 @@ def plan(regions, released, rebuild):
     needed = {m.split("/")[0] for m in made}
     releases = [d for d in b.DISTS if d in needed and d not in released]
     glyph = [{"name": e["name"]} for e in include if e["glyph"]]
+    # OSM の元データを取る地域 (osm job が 1 地域 1 回だけ取ってキャッシュに置き、bake はそれを戻すだけにする)
+    area_of = {r["name"]: r["area"] for r in regions}
+    areas = sorted({area_of[e["name"]] for e in include if e["build"] or e["poi"] or e["glyph"]})
     return {"matrix": {"include": include}, "made": " ".join(made), "releases": releases, "count": len(include),
-            "glyph_matrix": {"include": glyph}, "glyph_count": len(glyph)}
+            "glyph_matrix": {"include": glyph}, "glyph_count": len(glyph),
+            "osm_matrix": {"include": [{"area": a} for a in areas]}, "osm_count": len(areas)}
 
 
 def restore(regions, released):
