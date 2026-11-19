@@ -15,8 +15,6 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/manifest.json        �
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.png   シート (複数タイル = 1 画像)
 https://kimkim0106.github.io/vrchat-osm-tiles/v2/<地域>/sheets/<z>/<k>.bin   同じシートの生データ (binZooms のズームだけ)
 https://kimkim0106.github.io/vrchat-osm-tiles/v3/<地域>/...                  v2 と同じ形。POI (駅・観光地・店など) 入り
-https://kimkim0106.github.io/vrchat-osm-tiles/v4/<地域>/manifest.json        (まだ配っていない) 床が読む manifest。シートは絶対 URL
-https://kimkim0106.github.io/vrchat-osm-tiles/v4/<地域>/own/sheets/<z>/<k>.png  その地域が持ち主のタイルのシート
 ```
 
 `regions.json` で `"host": "r2"` の地域は Pages の容量 (1 GB) に入らないので、Cloudflare R2 に置きます。
@@ -24,6 +22,9 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v4/<地域>/own/sheets/<z>/<k>.png
 ```
 <R2 の公開 URL>/v2/index.json
 <R2 の公開 URL>/v2/<地域>/manifest.json                                       形は Pages の v2 と同じ
+<R2 の公開 URL>/v4/index.json                                                 v4 はどの地域も R2 (下)
+<R2 の公開 URL>/v4/<地域>/manifest.json                                       床が読む manifest。シートは絶対 URL
+<R2 の公開 URL>/v4/<地域>/own/sheets/<z>/<k>.png                              その地域が持ち主のタイルのシート
 ```
 
 **R2 は VRChat の信頼済みドメインではありません。** R2 の地域は、VRChat の設定で「Allow Untrusted URLs」をオンにした人にしか読めません。
@@ -36,7 +37,7 @@ https://kimkim0106.github.io/vrchat-osm-tiles/v4/<地域>/own/sheets/<z>/<k>.png
 ワールドの読み方が変わる変更は形式の版を上げて次のディレクトリに出し、古い版も配り続けます。
 `v3` はシートの形式は v2 と同じ (manifest の `version` は 2) で、POI を入れたものです (index.json の `version` は 3)。
 v2 までのワールドのシェーダーは POI を地名と区別できないので、別のディレクトリにしています。
-`v4` (まだ配っていない) はタイルの形式 2 です。ラベルの字の形をタイルに持たず、ワールドが実行時に作る
+`v4` (2026-11-19 から R2 で配る) はタイルの形式 2 です。ラベルの字の形をタイルに持たず、ワールドが実行時に作る
 共有の字のアトラスから Unicode の文字コードで引きます (下の「形式の版」)。また、地域をまたいで同じタイルを 1 回だけ焼いて 1 か所に置きます
 (下の「v4: 重複しない持ち方」)。
 
@@ -134,9 +135,13 @@ v3 までは地域ごとに範囲のタイルを全部焼いていたので、�
 
 - ズームごとの作り方: z11 までは広域の作り方 (地名は国土数値情報、境界は県境だけ)、z12 からは都市の作り方 (OSM の地名と POI)。
   都市の地域は床が読む z13・z14 だけを焼きます (v3 の z10〜z12 は焼かない)。
+- 置き場所: v4 は地域の `host` によらず、どの地域も R2 に置きます (`build_site.py` の `DIST_HOSTS`)。Pages は v3 だけで
+  766 MB あり (公開中のワールドが読むので外せない)、v4 の東京と広域 (約 550 MB) が入らないため。v4 の床はどれも、
+  「Allow Untrusted URLs」がオンの人にしか読めません。
 - 持ち主: 焼いた地域は、焼いたタイルの一覧 (Release の `<地域>.own.json.gz`) を残し、そのタイルの持ち主であり続けます。
   どの一覧にも無いタイルは、範囲に含む地域を Pages の地域 → regions.json の並び、の順に並べた最初の地域が持ち主です。
-  持ち主だけがそのタイルを焼いて `v4/<持ち主>/own/` に置きます。東京 (Pages) の床が R2 のシートを指さないよう、Pages の地域を先にしています。
+  持ち主だけがそのタイルを焼いて `v4/<持ち主>/own/` に置きます。東京 (Pages) の床が R2 のシートを指さないよう、Pages の地域を先にして
+  焼きました (その後で v4 は全部 R2 に置くことにしたので、今は持ち主の順を決めるだけ)。
   地域を足しても、一部の地域だけ焼けて実行し直しても、焼いたタイルは変わりません。glyph job は一覧とラベルを先に、
   `<地域>.tar.gz` (plan が「焼いた」とみなす印) を最後に保存します。
 - regions.json から消した地域も、持ち物の manifest に残した定義 (`sourceRegion`) で、床の manifest を作って配り続けます。
@@ -287,7 +292,8 @@ v4 は `vmt_v4.py` で 3 段に焼きます (焼いた地域があれば、Relea
 .venv/bin/python vmt_v4.py candidates --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --out build/v4/cands
 .venv/bin/python vmt_v4.py labels --tools build/tools --cands build/v4/cands --plans build/v4/plans
 .venv/bin/python vmt_v4.py bake --region tokyo --mbtiles tokyo=path/to/tokyo.mbtiles --tools build/tools --plans build/v4/plans --site site
-.venv/bin/python build_site.py --site site --index-only    # 床が読む manifest (site/v4/tokyo/manifest.json) と索引
+.venv/bin/python build_site.py --site site --index-only --r2-url https://<R2 の公開 URL>/
+    # 床が読む manifest (site/v4/tokyo/manifest.json) と索引。v4 は R2 に置くので、シートの URL は R2 の公開 URL
 ```
 Release の地域を手元に戻すには `gh release download v1 -p '*.tar.gz'` で取って `site/` に展開し、`build_site.py --site site --index-only` で索引を作ります。
 

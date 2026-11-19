@@ -51,6 +51,7 @@ v3 / v4 は dists か releaseOnly にその版がある地域 (dists が無け�
 配る前に確かめたいとき (R2 の v3 など) に使い、確かめたら dists に移す (Release から戻して配る。焼き直さない)。
 
 regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudflare R2 に置く (Pages の 1 GB に入らないため)。
+v4 は地域の host によらず、どの地域も R2 に置く (DIST_HOSTS)。
 --r2 DIR を付けると、索引を作る前にその地域を site/ から DIR/ に移し、DIR/ にも R2 用の索引を作る。
 DIR/ を R2 に上げるのは r2_upload.py。R2 は VRChat の信頼済みドメインではないので、
 その地域は「Allow Untrusted URLs」をオンにした人にしか読めない。
@@ -96,6 +97,14 @@ SHEET_DISTS = (SHEET_DIST, POI_DIST, GLYPH_DIST)  # シートの版 (binGroups �
 WIDE_DISTS = (POI_DIST, GLYPH_DIST)               # 広域の地図で作れる版
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
 HOSTS = ("pages", "r2")        # regions.json の host (書かなければ pages)
+# 版ごとの置き場所 (地域の host より優先)。v4 は Pages の 1 GB に v3 と一緒に入らないので、どの地域も R2 に置く
+# (2026-11-19、利用者の判断。v4 の床はすべて「Allow Untrusted URLs」がオンの人にしか読めない)
+DIST_HOSTS = {GLYPH_DIST: "r2"}
+
+
+def host_of(region, dist):
+    """その地域のその版の置き場所 (pages / r2)。"""
+    return DIST_HOSTS.get(dist) or region.get("host", "pages")
 
 
 def default_pages_url():
@@ -396,7 +405,7 @@ def prune(site, regions):
 
 
 def move_r2(site, r2, regions):
-    """host が r2 の地域を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。"""
+    """host が r2 の地域 (版ごとの置き場所 DIST_HOSTS も見る) を site/ から r2/ に移す (Pages には載せない)。r2/ は毎回作り直す。"""
     if os.path.exists(r2):
         shutil.rmtree(r2)
     os.makedirs(r2)
@@ -410,9 +419,9 @@ def move_r2(site, r2, regions):
             if src:
                 regions = regions + [src]
     for r in regions:
-        if r.get("host", "pages") != "r2":
-            continue
         for dist in dist_dirs(site):
+            if host_of(r, dist) != "r2":
+                continue
             src = os.path.join(site, dist, r["name"])
             if os.path.isdir(src):
                 os.makedirs(os.path.join(r2, dist), exist_ok=True)
@@ -528,6 +537,9 @@ def main():
     ap.add_argument("--poi", action="store_true", help="v1 の代わりに v3 (POI 入りのシート) を焼く")
     ap.add_argument("--pages-url", default=default_pages_url(),
                     help="Pages の公開 URL (v4 の床の manifest がシートを絶対 URL で指すため)")
+    ap.add_argument("--r2-url", default=os.environ.get("R2_PUBLIC_URL") or None,
+                    help="R2 の公開 URL (v4 の床の manifest がシートを絶対 URL で指すため。--bin-groups があればそれ。"
+                         "既定は環境変数 R2_PUBLIC_URL)")
     ap.add_argument("--mbtiles", action="append", default=[], help="name=path。planetiler を回さずこの MBTiles を使う")
     ap.add_argument("--zooms", default=None, help="regions.json のズームを上書きする (試し焼き用)")
     ap.add_argument("--pack", action="append", default=[], help="この名前の地域の v1 から v2 を作る (複数可)")
@@ -580,7 +592,7 @@ def main():
             bin_groups(args.site, args.r2, regions, args.bin_groups)
     if args.index_only or args.r2:
         import vmt_v4
-        vmt_v4.assemble(regions, args.site, args.r2, args.pages_url, args.bin_groups)
+        vmt_v4.assemble(regions, args.site, args.r2, args.pages_url, args.bin_groups or args.r2_url)
     if args.r2:
         r2_total = write_indexes(args.r2)
         print(f"r2 total {r2_total / 1e6:.1f} MB -> {args.r2}")
