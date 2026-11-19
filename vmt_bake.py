@@ -614,14 +614,20 @@ def line_records(lines, scale, lo, hi):
 _font_cache = {}
 
 
-def _font(size=None, basic=False):
-    """ラベルのフォント。basic なら Pillow の BASIC レイアウト (raqm を使わない。1 文字ずつ描くので結果はほぼ同じ)。"""
+def _font_path():
+    """ラベルのフォントのパス。--font が無ければ FONT_CANDIDATES から探して LABEL_CONFIG に入れる。"""
     path = LABEL_CONFIG["font"]
     if path is None:
         path = next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
         if path is None:
             raise RuntimeError("フォントが見つかりません。--font で指定してください")
         LABEL_CONFIG["font"] = path
+    return path
+
+
+def _font(size=None, basic=False):
+    """ラベルのフォント。basic なら Pillow の BASIC レイアウト (raqm を使わない。1 文字ずつ描くので結果はほぼ同じ)。"""
+    path = _font_path()
     size = size or LABEL_FONT_PX
     key = (path, size, basic)
     if key not in _font_cache:
@@ -657,7 +663,7 @@ _cmap_cache = {}
 
 def font_has(ch):
     """ベイカーのフォント (TTC なら 1 つ目の書体。Pillow と同じ) に ch の字があるか。"""
-    path = LABEL_CONFIG["font"]
+    path = _font_path()  # --font が無いときも、_font と同じフォントを見る (Codex のレビューで指摘)
     if path not in _cmap_cache:
         from fontTools.ttLib import TTCollection, TTFont
         with open(path, "rb") as f:
