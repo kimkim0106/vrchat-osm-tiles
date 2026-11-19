@@ -40,11 +40,13 @@
   行 H-1    列 0 にマーカー BOTTOM = (0x62, 0x6F, 0x74)。他は未使用
 
 形式 2 (--tile-format 2。VMT-DT v4 の配信で使う。Issue #19)。形式 1 からラベルだけが変わる (ヘッダ列 1 = 2):
-  ラベルの字の形はタイルに持たず、ワールドが実行時に作る共有の字のアトラスから読む。字は Unicode の文字コードで持ち、
-  ワールドが「文字コード → アトラスのマス」の表で引く (並びの順番にタイルが縛られない。字を足す・並べ替える・機種ごとに
-  変えるのはワールドの自由)。--glyphs の並び (glyphs_v4.txt。1 行 64 字、改行は数えない) はワールドが持つ字の一覧で、
-  それに無い字だけタイルの小さなアトラスに入れる。manifest の sharedGlyphs = タイルが文字コードで指す字 (ワールドが全部
-  持っているか照合する)。
+  ラベルの字の形はタイルに持たず、ワールドが実行時に作る共有の字のアトラスから読む。字はどれも Unicode の文字コードで持ち、
+  ワールドが「文字コード → アトラスのマス」の表で引く (どの字を描けるかはワールドのフォント (VRChat のクライアントの TMP の
+  フォールバック) が決める。中国語・韓国語や JIS の外の字 (麵、𠮷 など) もそのまま載せる。2026-11-20 までは字の一覧
+  (glyphs_v4.txt) に無い字だけタイルの小さなアトラスに入れていた)。manifest の sharedGlyphs = タイルが指す字 (ワールドはこれだけを作る)。
+  字の幅とインクの真ん中はベイカーのフォント (Noto Sans CJK JP) で測る。フォントに無い字 (タイ文字など) は全角の幅で、
+  送り幅の箱の真ん中に置く。1 字ずつ同じ幅のマスに描くので、字をつなげたり形を変えたりする文字 (アラビア文字・タイ文字・
+  デーヴァナーガリーなど) は正しく描けない (対象外)。
   ラベルは言語ごとの塊 (--langs の順。最大 2) に分かれ、シェーダーが選ぶ。
   字レコード  1 字 = 4 テクセル。縁取りと本体の 2 枚の四角形 (12 頂点) を、シェーダーが頂点の番号から作る
               (塊の字数 N のとき、頂点 v < 6N は字 v / 6 の縁取り、残りは字 (v - 6N) / 6 の本体。縁取りを先に全部描く)
@@ -52,12 +54,12 @@
               T1 = 字の箱の中心の、基準点からの横のずれ (タイル単位 + 2048。北が上の向きで右が正) と、字の箱の一辺
                    (タイル単位、10bit)。頂点レコードと同じ 12bit × 2。縦のずれは無い (箱の中心は基準点の高さ)
               T2 = 字 24bit (R = 上位 8bit)。最上位のビット (0x800000) が 0 なら Unicode の文字コード (21bit)、
-                   1 なら残りの 23bit がタイルのアトラスの番号
+                   1 なら残りの 23bit がタイルのアトラスの番号 (2026-11-20 より前に焼いたタイル。今のベイカーは書かない)
               T3 = (kmin, kmax, 種類)。形式 1 と同じ
               字の箱はアトラスの 1 マス (32 px) 全体。字の形は箱の横の真ん中にインクの箱の真ん中、縦は基準線を
               (32 - (ascent + descent)) / 2 + ascent の高さに置く (TextMeshPro の <mspace> と同じ。共有のアトラスもこの置き方)
   ヘッダ      列 9 / 10  塊 0 の字数 / 開始行 (24bit)
-              列 11      タイルのアトラスの開始行 (無ければ 0)。32 × 32 のマスを 1 段 63 個 (形式 1 と同じ)
+              列 11      タイルのアトラスの開始行 (無ければ 0。今のベイカーはいつも 0)。32 × 32 のマスを 1 段 63 個 (形式 1 と同じ)
               列 12      字レコードのテクセル数 (4)
               列 13 / 14 塊 1 の字数 / 開始行 (塊 1 が無ければ開始行 0。字数 0 でも開始行があれば「その言語のラベルは無い」)
 
@@ -105,8 +107,6 @@ LABEL_SPREAD = 4.0       # 距離画像が表す距離の幅 (px)。字の大き
 LABEL_COLS = (TEX_W - 1) // LABEL_CELL
 LABEL_VERTS_PER_POOL = 16380  # ラベル用プールメッシュの頂点数の既定 (Unity の地名の入れ物の段階が 15 なので 90 の倍数。--label-verts で変える)
 LABEL_STRIDE = 4         # ラベル頂点 1 つのテクセル数 (形式 2 では字レコード 1 つのテクセル数)
-GLYPH_COLS = 64          # 共有の字のアトラスの 1 段の字数 (2048 px / 32 px)
-GLYPH_LOCAL_FLAG = 1 << 23  # 形式 2 の字 (T2) のこのビットが立っていれば、タイルのアトラスの番号 (無ければ文字コード)
 MAX_LANGS = 2            # 形式 2 の言語の塊の数の上限 (ヘッダ列 9..10 と 13..14)
 LABEL_SCALE_MIN = -24    # 重なりを調べる倍率は 2^(k/8)、k = LABEL_SCALE_MIN..LABEL_SCALE_STEPS (1/8 倍から 8 倍)
 LABEL_SCALE_STEPS = 24   # 1 倍未満は床を拡大したとき (文字の倍率を zoom で割る) に使い、拡大するほど多く出る
@@ -174,25 +174,8 @@ def label_categories():
 
 LABEL_CONFIG = {"font": None, "lang": None, "enabled": True, "spacing": 1.0, "poi": True,
                 "verts": LABEL_VERTS_PER_POOL, "wide": None,
-                # 形式 2: glyphs = 共有の字のアトラスの並び {字: 番号}、langs = 言語の塊の順
-                "format": 1, "glyphs": None, "langs": None}
-
-
-def load_glyphs(path):
-    """共有の字のアトラスの並び (1 行 64 字。改行は数えない) を {字: 番号} にする。"""
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    lines = text.split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    chars = "".join(lines)
-    bad = [i for i, ln in enumerate(lines[:-1]) if len(ln) != GLYPH_COLS]
-    if bad:
-        raise ValueError(f"{path}: {bad[0] + 1} 行目が {GLYPH_COLS} 字ではない")
-    out = {}
-    for i, ch in enumerate(chars):
-        out.setdefault(ch, i)
-    return out, chars
+                # 形式 2: langs = 言語の塊の順
+                "format": 1, "langs": None}
 
 # 広域の地図 (--wide-labels) の地名。地名の点は wide_labels.py が国土数値情報から作ったもの (市区町村・駅・手で足す島) で、
 # OpenStreetMap からは島・海・湖の名前だけを取る (日本語の名前があり、元の名前がハングルやキリル文字でないもの)。
@@ -631,14 +614,20 @@ def line_records(lines, scale, lo, hi):
 _font_cache = {}
 
 
-def _font(size=None, basic=False):
-    """ラベルのフォント。basic なら Pillow の BASIC レイアウト (raqm を使わない。1 文字ずつ描くので結果はほぼ同じ)。"""
+def _font_path():
+    """ラベルのフォントのパス。--font が無ければ FONT_CANDIDATES から探して LABEL_CONFIG に入れる。"""
     path = LABEL_CONFIG["font"]
     if path is None:
         path = next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
         if path is None:
             raise RuntimeError("フォントが見つかりません。--font で指定してください")
         LABEL_CONFIG["font"] = path
+    return path
+
+
+def _font(size=None, basic=False):
+    """ラベルのフォント。basic なら Pillow の BASIC レイアウト (raqm を使わない。1 文字ずつ描くので結果はほぼ同じ)。"""
+    path = _font_path()
     size = size or LABEL_FONT_PX
     key = (path, size, basic)
     if key not in _font_cache:
@@ -659,7 +648,7 @@ def clean_label(name):
     """ラベルの名前を NFC にし、字にならない文字を除く。空白の並びは 1 つにする。"""
     name = unicodedata.normalize("NFC", name)
     if LABEL_CONFIG.get("format", 1) >= 2:
-        # 半角カナは全角にする (共有の字のアトラスの並びに半角カナは無い。ｶﾞ は ガ になる)。
+        # 半角カナは全角にする (1 字ずつマスに描くので、半角の濁点・半濁点を前の字に重ねられない。ｶﾞ は ガ になる)。
         # 前の字と合成できなかった濁点・半濁点は結合文字のままだと消えるので ゛゜ にする
         name = re.sub("[｡-ﾟ]+", lambda m: unicodedata.normalize("NFKC", m.group()), name)
         name = unicodedata.normalize("NFC", name)
@@ -669,6 +658,26 @@ def clean_label(name):
 
 
 _glyph_cache = {}
+_cmap_cache = {}
+
+
+def font_has(ch):
+    """ベイカーのフォント (TTC なら 1 つ目の書体。Pillow と同じ) に ch の字があるか。"""
+    path = _font_path()  # --font が無いときも、_font と同じフォントを見る (Codex のレビューで指摘)
+    if path not in _cmap_cache:
+        from fontTools.ttLib import TTCollection, TTFont
+        with open(path, "rb") as f:
+            ttc = f.read(4) == b"ttcf"
+        font = TTCollection(path, lazy=True).fonts[0] if ttc else TTFont(path, lazy=True)
+        _cmap_cache[path] = set(font.getBestCmap())
+    return ord(ch) in _cmap_cache[path]
+
+
+def glyph_advance(ch):
+    """字の送り幅 (LABEL_FONT_PX の字で px)。形式 2 では、フォントに無い字は全角 (.notdef の幅によらない)。"""
+    if LABEL_CONFIG.get("format", 1) >= 2 and not font_has(ch):
+        return float(LABEL_FONT_PX)
+    return glyph_sdf(ch)[1]
 
 
 def glyph_sdf(ch, ink=False):
@@ -718,6 +727,8 @@ _ink_cache = {}
 def glyph_ink_center(ch):
     """字の形 (インクの箱) の横の真ん中の、ペンの位置からの距離 (LABEL_FONT_PX の字で px)。形の無い字は送り幅の半分。"""
     key = (LABEL_CONFIG["font"], ch)
+    if key not in _ink_cache and LABEL_CONFIG.get("format", 1) >= 2 and not font_has(ch):
+        _ink_cache[key] = glyph_advance(ch) / 2.0  # フォントに無い字は送り幅の箱の真ん中 (ワールドのフォントの字をそこに描く)
     if key not in _ink_cache:
         from PIL import Image, ImageDraw
         c = None
@@ -960,7 +971,7 @@ def place_labels(cands, fixed=()):
     mg = [0.0] * n
     for i, c in enumerate(cands):
         k = c["size"] / float(LABEL_FONT_PX)
-        c["advs"] = [glyph_sdf(ch)[1] * k for ch in c["name"]]
+        c["advs"] = [glyph_advance(ch) * k for ch in c["name"]]
         hw[i] = sum(c["advs"]) / 2 * px
         hh[i] = c["size"] * 0.6 * px
         mg[i] = c["margin"] * px
@@ -1060,7 +1071,7 @@ def plan_labels(db, levels, lat):
 def label_advs(lab):
     """ラベルの字ごとの送り幅 (px)。place_labels が入れるものと同じ (外から渡した配置 (--plan) に足す)。"""
     k = lab["size"] / float(LABEL_FONT_PX)
-    return [glyph_sdf(ch)[1] * k for ch in lab["name"]]
+    return [glyph_advance(ch) * k for ch in lab["name"]]
 
 
 def build_labels(planned, z, tx, ty, max_atlas_rows=MAX_H):
@@ -1113,16 +1124,14 @@ def build_labels(planned, z, tx, ty, max_atlas_rows=MAX_H):
     return np.array(halo_quads + text_quads, dtype=np.float64), atlas, count
 
 
-def build_glyph_labels(planned, z, tx, ty, local, max_local, used=None):
+def build_glyph_labels(planned, z, tx, ty, used=None):
     """形式 2: plan_labels で決めた 1 言語のラベルの字レコードを作る。
 
-    戻り値は (字レコード (n, 9) = 基準点 x, y / 箱の中心のずれ x, y (タイル単位) / 字の番号 / 箱の一辺 (タイル単位) /
-    kmin / kmax / 種類, ラベル数)。共有の字のアトラスの並びに無い字は local ({字: タイルのアトラスの番号}。言語の塊で共有)
-    に足す (max_local 個まで。超えるラベルは捨てる)。プールメッシュ (字数 x 12 頂点) に収まらない分は優先度の低いものから捨てる。
+    戻り値は (字レコード (n, 9) = 基準点 x, y / 箱の中心のずれ x, y (タイル単位) / 字 (Unicode の文字コード) / 箱の一辺 (タイル単位) /
+    kmin / kmax / 種類, ラベル数)。使った字を used に足す。プールメッシュ (字数 x 12 頂点) に収まらない分は優先度の低いものから捨てる。
     """
     if not planned:
         return np.zeros((0, 9)), 0
-    shared = LABEL_CONFIG["glyphs"]
     px = EXTENT / 512.0
     out = []
     count = 0
@@ -1130,38 +1139,20 @@ def build_glyph_labels(planned, z, tx, ty, local, max_local, used=None):
         chars = [ch for ch in lab["name"] if not ch.isspace()]
         if 12 * (len(out) + len(chars)) > LABEL_CONFIG["verts"]:
             continue
-        new_local = {ch for ch in chars if ch not in shared and ch not in local}
-        if len(local) + len(new_local) > max_local:
-            continue
         x, y = lab["x"] - tx * EXTENT, lab["y"] - ty * EXTENT
         k = lab["size"] / float(LABEL_FONT_PX)
         side = LABEL_CELL * k * px
         pen = -sum(lab["advs"]) / 2
         for ch, adv in zip(lab["name"], lab["advs"]):
             if not ch.isspace():
-                if ch in shared:
-                    g = ord(ch)  # 文字コード (ワールドの表でアトラスのマスを引く)
-                    if used is not None:
-                        used.add(ch)
-                else:
-                    g = GLYPH_LOCAL_FLAG + local.setdefault(ch, len(local))
+                g = ord(ch)  # 文字コード (ワールドの表でアトラスのマスを引く)
+                if used is not None:
+                    used.add(ch)
                 cx = (pen + glyph_ink_center(ch) * k) * px
                 out.append((x, y, cx, 0.0, g, side, lab["kmin"], lab["kmax"], lab.get("cat", 0)))
             pen += adv
         count += 1
     return np.array(out, dtype=np.float64).reshape(-1, 9), count
-
-
-def local_atlas(local):
-    """形式 2 のタイルのアトラス (共有の並びに無い字。1 段 LABEL_COLS 個)。字が無ければ None。"""
-    if not local:
-        return None
-    rows = -(-len(local) // LABEL_COLS) * LABEL_CELL
-    atlas = np.zeros((rows, TEX_W), dtype=np.uint8)
-    for ch, g in local.items():
-        u0, v0 = (g % LABEL_COLS) * LABEL_CELL, (g // LABEL_COLS) * LABEL_CELL
-        atlas[v0:v0 + LABEL_CELL, u0:u0 + LABEL_CELL] = glyph_sdf(ch, ink=True)[0]
-    return atlas
 
 
 def encode_glyph_records(recs):
@@ -1382,23 +1373,20 @@ def bake_tile(db, style, z, x, y, planned=None):
     data_rows = (2 * len(records) + TEX_W - 1) // TEX_W
     label_rows = (LABEL_STRIDE * LABEL_CONFIG["verts"] + TEX_W - 1) // TEX_W
     if LABEL_CONFIG["format"] >= 2:
-        # planned は言語ごとのラベルのリスト。タイルのアトラス (共有の並びに無い字) は言語の塊で共有する
+        # planned は言語ごとのラベルのリスト。字はどれも文字コードで持つ (タイルのアトラスは作らない)
         langs = LABEL_CONFIG["langs"]
-        local = {}
         used = set()
-        max_local = ((MAX_H - DATA_ROW - data_rows - len(langs) * label_rows - 1) // LABEL_CELL) * LABEL_COLS
         blocks, counts = [], []
         for li in range(len(langs)):
-            recs, count = build_glyph_labels((planned or {}).get(li), z, x, y, local, max_local, used)
+            recs, count = build_glyph_labels((planned or {}).get(li), z, x, y, used)
             blocks.append(recs)
             counts.append(count)
         stats["_labels"] = counts[0]
         stats["_labelsByLang"] = counts
         stats["_labelVertices"] = 12 * max(len(b) for b in blocks)
         stats["_labelVerticesByLang"] = [12 * len(b) for b in blocks]
-        stats["_localGlyphs"] = len(local)
         stats["_sharedGlyphs"] = "".join(sorted(used))
-        tex = build_texture(records, style, z, x, y, atlas=local_atlas(local), blocks=blocks)
+        tex = build_texture(records, style, z, x, y, blocks=blocks)
         return tex, records, stats
     labels, atlas, count = build_labels(planned, z, x, y, MAX_H - DATA_ROW - data_rows - label_rows - 1)
     stats["_labels"] = count
@@ -1433,7 +1421,6 @@ def _worker_bake(job):
     if "_labelsByLang" in stats:
         info["labelsByLang"] = stats["_labelsByLang"]
         info["labelVerticesByLang"] = stats["_labelVerticesByLang"]
-        info["localGlyphs"] = stats["_localGlyphs"]
         info["_sharedGlyphs"] = stats["_sharedGlyphs"]  # manifest の sharedGlyphs にまとめる
     if _worker["dry_run"]:
         import io
@@ -1481,9 +1468,7 @@ def main(argv=None):
     ap.add_argument("--label-verts", type=int, default=LABEL_VERTS_PER_POOL,
                     help=f"1 タイルのラベル頂点の上限 (既定 {LABEL_VERTS_PER_POOL}。90 の倍数)。Unity の地名の入れ物の最大と合わせる")
     ap.add_argument("--tile-format", type=int, default=1, choices=(1, 2),
-                    help="タイルの形式。2 = ラベルの字を共有の字のアトラス (--glyphs) の番号で持ち、言語ごとの塊 (--langs) にする (v4)")
-    ap.add_argument("--glyphs", default=None, metavar="TXT",
-                    help="形式 2 の共有の字のアトラスの並び (Tools/GlyphAtlas/glyphs_v4.txt)")
+                    help="タイルの形式。2 = ラベルの字を Unicode の文字コードで持ち (ワールドの共有の字のアトラスから読む)、言語ごとの塊 (--langs) にする (v4)")
     ap.add_argument("--langs", default=None, metavar="L[,L]",
                     help="形式 2 のラベルの言語の塊 (例: ja,en。最大 2)。省略時は --lang だけ。広域の地図 (--wide-labels) は最初の言語だけ")
     ap.add_argument("--tiles", default=None, metavar="JSON",
@@ -1491,8 +1476,6 @@ def main(argv=None):
     ap.add_argument("--plan", default=None, metavar="JSON",
                     help="ラベルの配置を自分で決めず、これを使う ({\"z/x/y\": [[言語 0 のラベル...], ...]}。vmt_v4.py が地域をまたいで決める)")
     args = ap.parse_args(argv)
-    if args.tile_format >= 2 and not args.glyphs:
-        ap.error("--tile-format 2 には --glyphs が要る")
     if args.label_verts <= 0 or args.label_verts % 90:
         ap.error("--label-verts は 90 の倍数 (Unity の地名の入れ物は 15 段階で、1 段は 6 の倍数)")
 
@@ -1528,19 +1511,14 @@ def main(argv=None):
             ap.error(f"{args.wide_labels} に知らない kind: {', '.join(sorted(unknown))}")
     LABEL_CONFIG.update(font=args.font, lang=args.lang, enabled=not args.no_labels, spacing=args.label_spacing,
                         poi=not args.no_poi and wide is None, verts=args.label_verts, wide=wide)
-    glyph_set = None
     if args.tile_format >= 2:
-        import hashlib
-        glyphs, glyph_chars = load_glyphs(args.glyphs)
         langs = [v for v in (args.langs or args.lang or "ja").split(",") if v]
         if len(langs) > MAX_LANGS:
             ap.error(f"--langs は {MAX_LANGS} つまで")
         if wide is not None and len(langs) > 1:
             print(f"広域の地図の地名は {langs[0]} だけなので、{', '.join(langs[1:])} の塊は作らない", flush=True)
             langs = langs[:1]
-        LABEL_CONFIG.update(format=2, glyphs=glyphs, langs=langs, lang=langs[0])
-        glyph_set = {"file": os.path.basename(args.glyphs), "count": len(glyph_chars),
-                     "sha1": hashlib.sha1(glyph_chars.encode("utf-8")).hexdigest()}
+        LABEL_CONFIG.update(format=2, langs=langs, lang=langs[0])
     db = sqlite3.connect(f"file:{args.mbtiles}?mode=ro", uri=True)
     if not args.dry_run:
         os.makedirs(args.out, exist_ok=True)
@@ -1672,12 +1650,11 @@ def main(argv=None):
     }
     if wide_attribution:
         manifest["labelAttribution"] = wide_attribution
-    if glyph_set is not None:
+    if LABEL_CONFIG["format"] >= 2:
         # version は manifest の形 (1 = タイル 1 枚ずつ。vmt_pack.py のシートは 2) のままにし、タイルの形式は tileFormat に書く
         manifest["tileFormat"] = 2
         manifest["labelLanguages"] = LABEL_CONFIG["langs"]
-        manifest["glyphSet"] = glyph_set
-        # タイルが文字コードで指す字 (共有の字のアトラスから読む字)。ワールドはこれを全部持っていれば読める
+        # タイルが文字コードで指す字 (共有の字のアトラスから読む字)。ワールドは床の字としてこれだけを作る
         manifest["sharedGlyphs"] = "".join(sorted(shared_glyphs))
     with open(os.path.join(args.out, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)

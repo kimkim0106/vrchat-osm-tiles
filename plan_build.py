@@ -8,12 +8,15 @@ Release (タグ = 版) には <地域>.tar.gz が並ぶ。その一覧を JSON �
       その一覧を gh で集める (ダウンロードはしない)。
 
   python plan_build.py plan released.json --rebuild "kobe,osaka"
-      焼く地域を決める。出力 (JSON):
+      焼く地域を決める。rebuild の 1 つずつは「地域」(その地域の版をどれも焼き直す) か「版:地域」(その版だけ。例 v4:kobe)。
+      地域の代わりに all で全部 (例 v4:all = どの地域も v4 だけ焼き直す。v3 までの固定した地域は変えない)。出力 (JSON):
         matrix    {"include": [{"name": "kobe", "build": true, "pack": true, "poi": true, "glyph": true}, ...]}
                   build = v1 を焼く (POI なし)、pack = v2 を v1 からまとめる、poi = v3 を焼く、
                   glyph = v4 (タイルの形式 2) のラベルの候補を集める (bake job。焼くのは glyph job)
         glyph_matrix  {"include": [{"name": "kobe"}, ...]}  v4 を焼く地域 (glyph job。vmt_v4.py の 3 段目)
         glyph_count   その数
+        osm_matrix    {"include": [{"area": "kansai"}, ...]}  OSM の元データを取る地域 (osm job。1 地域 1 回)
+        osm_count     その数
         made      この実行で作る版と地域 (v3/kobe のように。空白区切り。R2 に上げ直す)
         releases  焼いた地域を保存する版のうち、まだ Release が無いもの (plan job が作る)
         count     matrix の地域の数
@@ -49,27 +52,42 @@ def load_regions(path):
         return json.load(f)["regions"]
 
 
-def plan(regions, released, rebuild):
-    have = {d: set(released.get(d) or []) for d in b.DISTS}
-    names = {r["name"] for r in regions}
-    forced = set(n.strip() for n in rebuild.split(",") if n.strip())
-    if "all" in forced:
-        forced = set(names)
-    unknown = forced - names
+def parse_rebuild(rebuild, names):
+    """rebuild の指定を {版: {地域}} にする。版の無い指定 (地域だけ) は、焼き直せる版 (v1 / v3 / v4) のどれにも入る。"""
+    forced = {d: set() for d in (b.DIST, b.POI_DIST, b.GLYPH_DIST)}
+    unknown = set()
+    for item in (v.strip() for v in rebuild.split(",")):
+        if not item:
+            continue
+        dist, sep, n = item.partition(":")
+        if not sep:
+            dist, n = None, item
+        elif dist not in forced:
+            sys.exit(f"rebuild の版は {', '.join(forced)} のどれか: {item}")
+        targets = set(names) if n == "all" else {n}
+        unknown |= targets - set(names)
+        for d in ([dist] if dist else list(forced)):
+            forced[d] |= targets & set(names)
     if unknown:
         sys.exit(f"rebuild に regions.json に無い地域: {', '.join(sorted(unknown))}")
+    return forced
+
+
+def plan(regions, released, rebuild):
+    have = {d: set(released.get(d) or []) for d in b.DISTS}
+    forced = parse_rebuild(rebuild, [r["name"] for r in regions])
     include = []
     for r in regions:
         n = r["name"]
         build = pack = poi = glyph = False
         if b.wants_dist(r, b.DIST):
-            build = n in forced or n not in have[b.DIST]
+            build = n in forced[b.DIST] or n not in have[b.DIST]
         if b.wants_dist(r, b.SHEET_DIST):
             pack = build or n not in have[b.SHEET_DIST]
         if b.wants_dist(r, b.POI_DIST):
-            poi = n in forced or n not in have[b.POI_DIST]
+            poi = n in forced[b.POI_DIST] or n not in have[b.POI_DIST]
         if b.wants_dist(r, b.GLYPH_DIST):
-            glyph = n in forced or n not in have[b.GLYPH_DIST]
+            glyph = n in forced[b.GLYPH_DIST] or n not in have[b.GLYPH_DIST]
         if pack and not build and n not in have[b.DIST]:
             sys.exit(f"{n}: v2 を作るのに v1 が Release に無い")  # wants_dist が v2 なら v1 も作るので、ここには来ない
         if build or pack or poi or glyph:
@@ -80,8 +98,12 @@ def plan(regions, released, rebuild):
     needed = {m.split("/")[0] for m in made}
     releases = [d for d in b.DISTS if d in needed and d not in released]
     glyph = [{"name": e["name"]} for e in include if e["glyph"]]
+    # OSM の元データを取る地域 (osm job が 1 地域 1 回だけ取ってキャッシュに置き、bake はそれを戻すだけにする)
+    area_of = {r["name"]: r["area"] for r in regions}
+    areas = sorted({area_of[e["name"]] for e in include if e["build"] or e["poi"] or e["glyph"]})
     return {"matrix": {"include": include}, "made": " ".join(made), "releases": releases, "count": len(include),
-            "glyph_matrix": {"include": glyph}, "glyph_count": len(glyph)}
+            "glyph_matrix": {"include": glyph}, "glyph_count": len(glyph),
+            "osm_matrix": {"include": [{"area": a} for a in areas]}, "osm_count": len(areas)}
 
 
 def restore(regions, released):
@@ -128,7 +150,7 @@ def main():
     ap.add_argument("path", nargs="?",
                     help="plan / restore: Release にある地域 ({版: [地域, ...]}) の JSON。dists: site のディレクトリ")
     ap.add_argument("--regions", default=os.path.join(HERE, "regions.json"))
-    ap.add_argument("--rebuild", default="", help="焼き直す地域 (カンマ区切り、all で全部)")
+    ap.add_argument("--rebuild", default="", help="焼き直す地域 (カンマ区切り、all で全部。v4:all のように版を付けるとその版だけ)")
     args = ap.parse_args()
     if args.mode == "released":
         print(json.dumps(list_released()))

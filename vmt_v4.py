@@ -72,7 +72,8 @@ WIDE_MAX_ZOOM = 11      # これ以下のズームは広域の作り方、これ
 # 焼いたタイルの中身を決める設定。同じズームのタイルは、どの地域が焼いても同じ設定でないといけない
 STYLE_KEYS = ("lang", "binZooms", "boundaryLevels", "labelVerts", "wideLabels")
 # 床が読む manifest に持ち主の manifest から写す項目 (持ち主どうしで同じであること)
-# (glyphSet は持ち主ごとに違ってよい。字は文字コードで持つので、床の manifest には持ち主の sharedGlyphs を合わせて載せる)
+# (字は文字コードで持つので、床の manifest には持ち主の sharedGlyphs を合わせて載せる。2026-11-20 より前に焼いた持ち主の
+#  manifest には、焼いたときの字の一覧の記録 glyphSet もある。床の manifest には写さない)
 COMMON_KEYS = ("format", "version", "width", "vertsPerChunk", "labelConfig", "labelCategories", "labelVertsPerPool",
                "styles", "attribution", "labelAttribution", "tileVersion", "tileFormat", "labelLanguages")
 
@@ -335,7 +336,7 @@ def bake(region, regions, inventory, mbtiles, plan_path, site, tools, work, jobs
         # 範囲のタイルを全部ほかの地域が持っている
         with open(os.path.join(own_dir, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump({"format": b.FORMAT, "version": b.SHEET_VERSION, "tiles": [], "sheets": [], "levels": levels_of(region),
-                       "glyphSet": b.glyph_set(), "sharedGlyphs": ""}, f, ensure_ascii=False, indent=1)
+                       "sharedGlyphs": ""}, f, ensure_ascii=False, indent=1)
     # 地域の定義を残す (regions.json から消しても、床の manifest を作り続けられるように)
     path = os.path.join(own_dir, "manifest.json")
     with open(path, encoding="utf-8") as f:
@@ -512,11 +513,8 @@ def region_manifest(region, batches, where, sheet_base, group_base):
     w, s, e_, n = (float(v) for v in region["bbox"].split(","))
     out = {key: v for key, v in common.items() if v is not None}
     used = sorted({e["owner"] for e in sheets})
-    # 字は文字コードで持つ。床が読むタイルが共有の字のアトラスから読む字 (持ち主の sharedGlyphs を合わせたもの。少し多め) と、
-    # 持ち主が焼くときに使った字の一覧 (glyphSet。ワールドの並びと違ってもよい。記録用)
+    # 字は文字コードで持つ。床が読むタイルが共有の字のアトラスから読む字 (持ち主の sharedGlyphs を合わせたもの。少し多め)
     out["sharedGlyphs"] = "".join(sorted(set("".join(batches[o][0].get("sharedGlyphs", "") for o in used))))
-    out["glyphSets"] = [g for i, g in enumerate(batches[o][0].get("glyphSet") for o in used)
-                        if g is not None and g not in [batches[p][0].get("glyphSet") for p in used[:i]]]
     out.update({"center": [(w + e_) / 2, (s + n) / 2], "levels": levels, "tiles": tiles, "sheets": sheets,
                 "owners": sorted({e["owner"] for e in sheets}, key=lambda o: (o != region["name"], o))})
     if groups:

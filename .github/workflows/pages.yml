@@ -11,7 +11,8 @@ name: タイルを焼いて Pages に配る
 #   ラベルをまとめて置き、glyph job (地域ごと) でその地域が持ち主のタイルだけを焼いて Release に保存する。
 #   作る版は regions.json の dists と releaseOnly (releaseOnly は Release に保存するが配らない)。
 #
-# job: plan (焼く地域を決め、Release が無ければ作る) → bake (地域ごとの matrix。焼いて Release に保存)
+# job: plan (焼く地域を決め、Release が無ければ作る) → osm (元データを地域ごとに 1 回取ってキャッシュに置く)
+#      → bake (地域ごとの matrix。焼いて Release に保存)
 #      → labels (v4 のラベルを置く) → glyph (v4 を地域ごとに焼いて Release に保存)
 #      → publish (Release から戻して索引を作り、R2 に上げ、Pages の成果物を作る) → deploy → check
 # bake の地域が 1 つ失敗しても、ほかの地域は焼いて保存する (fail-fast: false)。そのときは publish に進まないので、
@@ -29,7 +30,6 @@ on:
       - vmt_pack.py
       - vmt_v4.py
       - vmt_bingroup.py
-      - glyphs_v4.txt
       - build_site.py
       - plan_build.py
       - check_site.py
@@ -42,7 +42,7 @@ on:
   workflow_dispatch:
     inputs:
       rebuild:
-        description: "焼き直す地域 (カンマ区切り、all で全部)。焼き直すと、その地域を使う既存のワールドは manifest を入れ替えて上げ直す必要がある"
+        description: "焼き直す地域 (カンマ区切り、all で全部。v4:all のように版を付けるとその版だけ)。焼き直すと、その地域を使う既存のワールドは manifest を入れ替えて上げ直す必要がある"
         required: false
         default: ""
 
@@ -78,6 +78,8 @@ jobs:
       made: ${{ steps.plan.outputs.made }}
       glyph_matrix: ${{ steps.plan.outputs.glyph_matrix }}
       glyph_count: ${{ steps.plan.outputs.glyph_count }}
+      osm_matrix: ${{ steps.plan.outputs.osm_matrix }}
+      osm_count: ${{ steps.plan.outputs.osm_count }}
     steps:
       - uses: actions/checkout@v7
 
@@ -99,6 +101,8 @@ jobs:
             echo "made=$(python -c 'import json; print(json.load(open("plan.json"))["made"])')"
             echo "glyph_matrix=$(python -c 'import json; print(json.dumps(json.load(open("plan.json"))["glyph_matrix"]))')"
             echo "glyph_count=$(python -c 'import json; print(json.load(open("plan.json"))["glyph_count"])')"
+            echo "osm_matrix=$(python -c 'import json; print(json.dumps(json.load(open("plan.json"))["osm_matrix"]))')"
+            echo "osm_count=$(python -c 'import json; print(json.load(open("plan.json"))["osm_count"])')"
           } >> "$GITHUB_OUTPUT"
           for dist in $(python -c 'import json; print(" ".join(json.load(open("plan.json"))["releases"]))'); do
             gh release create "$dist" --target "$GITHUB_SHA" --title "$dist の地域" \
@@ -125,17 +129,53 @@ jobs:
           path: v4/inventory.json
           retention-days: 3
 
+  # OSM の元データ (Geofabrik の地域ごとの .osm.pbf) を、地域 (area) ごとに 1 回だけ取ってキャッシュに置く。
+  # Geofabrik は続けて取ると接続を拒むことがあるので、取るのはここだけにして同時に 3 つまでにする。
+  # bake はこのキャッシュを戻すだけなので、Geofabrik を気にせず並列を増やせる
+  osm:
+    needs: plan
+    if: needs.plan.outputs.osm_count != '0'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.osm_matrix) }}
+    name: osm (${{ matrix.area }})
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+
+      - name: 日付
+        id: osm
+        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      # 今日のものがあれば取らない。無ければ取り、どこからも取れなければ前の日までのものを使う (build_site.py の fetch_osm)
+      - name: 元データのキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: build/osm-cache/${{ matrix.area }}
+          key: osm-${{ matrix.area }}-${{ steps.osm.outputs.date }}
+          restore-keys: osm-${{ matrix.area }}-
+
+      - name: 元データを取る
+        run: python build_site.py --work build --fetch-osm "${{ matrix.area }}"
+
   # 1 地域 = 1 job。焼いた版ごとにすぐ Release に保存する (途中で止まっても、保存した版は次の実行で焼かない)
   bake:
-    needs: plan
-    if: needs.plan.outputs.count != '0'
+    needs: [plan, osm]
+    # osm が失敗しても進む (その地域は bake の中で取り直すか、前の日までのキャッシュを使う)
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 180
     permissions:
       contents: write   # Release に焼いた地域を保存する
     strategy:
       fail-fast: false
-      max-parallel: 3   # Geofabrik は続けて取ると接続を拒むことがある
+      max-parallel: 12  # 元データは osm job がキャッシュに置いたものを戻す (Geofabrik には取りに行かない)
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: bake (${{ matrix.name }})
     env:
@@ -183,9 +223,8 @@ jobs:
             "https://github.com/notofonts/noto-cjk/raw/${NOTO_TAG}/Sans/OTC/NotoSansCJK-Regular.ttc"
           printf '%s  planetiler.jar\n%s  NotoSansCJK-Regular.ttc\n' "$PLANETILER_SHA256" "$NOTO_SHA256" | sha256sum -c -
 
-      # OSM の元データ (Geofabrik の地域ごとの .osm.pbf) を地域と日付ごとにキャッシュする。同じ地域の都市が多いので、
-      # Geofabrik に取りに行く回数を減らす (続けて取ると接続を拒まれる)。今日のものが無ければ build_site.py が取り、
-      # どこからも取れなければ restore-keys で戻した前の日までのものを使う (build_site.py の fetch_osm)
+      # OSM の元データは osm job が地域と日付ごとにキャッシュに置いたものを戻すだけ (保存はしない。12 並列で同じキーに
+      # 保存し合わないように)。今日のものが戻らなかったときだけ build_site.py が取りに行く (fetch_osm)
       - if: matrix.build || matrix.poi || matrix.glyph
         name: 元データの地域
         id: osm
@@ -197,7 +236,7 @@ jobs:
 
       - if: matrix.build || matrix.poi || matrix.glyph
         name: 元データのキャッシュ
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: build/osm-cache/${{ steps.osm.outputs.area }}
           key: osm-${{ steps.osm.outputs.area }}-${{ steps.osm.outputs.date }}
