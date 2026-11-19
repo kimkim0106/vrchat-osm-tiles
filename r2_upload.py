@@ -14,9 +14,11 @@ binGroups の .bin が R2 に無ければ、それだけ上げる (まとめ方�
 Pages から R2 に移した地域 (神戸・徳島、2026-11-17) は、R2 に manifest.json とまとめた .bin だけがあり、シートが無い。
 DIR にその地域の画像があり、R2 に無ければ、R2 にある manifest.json に関係なく全部を上げる (images_missing)。
 
-v4 (vmt_v4.py) の地域は DIR/v4/<地域>/own/ (その地域が持ち主のシートと、まとめた .bin) を 1 つの地域と同じに扱い
-(own/manifest.json が「上げ終わった」印)、地域の直下の manifest.json (床が読む。ほかの地域の own/ を絶対 URL で指す) と
-region.json は、すべての own/ を上げた後で毎回上げる (配るたびに作り直すもの。中身は持ち主のタイルが変わらない限り同じ)。
+v4 (vmt_v4.py) は地域ごとに分けず、DIR/v4/sheets/<z>/<ハッシュ>.png / .bin と DIR/v4/bingroups/<z>/<ハッシュ>.bin に置く
+(名前は中身のハッシュ)。名前が同じなら中身も同じなので、R2 に無いものだけを上げる (一覧を 1 回取って比べる。--force は効かない)。
+その後で床の manifest (DIR/v4/floors/<地域>/manifest.json と region.json) を毎回上げる (シートを上げ終わってから)。
+R2 から消すものは無い (古いワールドが読むファイルを残す)。ただし --delete-legacy v4 なら、v4 の下の sheets/・bingroups/・
+floors/ 以外のディレクトリ (v4 を配る前の、地域ごとの置き方 v4/<地域>/) を消す (2026-11-19、利用者の判断。どのワールドも読んでいない)。
 
 圧縮: .bin (RGB24 の生データ) と .json / .html は gzip にして Content-Encoding: gzip を付けて置く。
 PNG はもともと圧縮してあるのでそのまま。Pages も .bin を gzip で返している (UnityWebRequest は自分で展開する)。
@@ -27,6 +29,7 @@ aws CLI (S3 互換 API) を使う。環境変数:
 
   python r2_upload.py r2site --force "osaka nagoya"      # 置いてあるすべての版
   python r2_upload.py r2site --force "v3/osaka"         # その版だけ
+  python r2_upload.py r2site --delete-legacy v4         # v4 の地域ごとの置き方を消す
 """
 import argparse
 import gzip
@@ -41,12 +44,84 @@ CACHE = "public, max-age=3600"
 TYPES = {".png": "image/png", ".bin": "application/octet-stream",
          ".json": "application/json; charset=utf-8", ".html": "text/html; charset=utf-8"}
 GZIP = {".bin", ".json", ".html"}
+STORE = ("sheets", "bingroups")   # 中身のハッシュの名前で置くディレクトリ (v4)
+FLOORS = "floors"                 # v4 の床の manifest
+BATCH_BYTES = 2e9                 # 中身のハッシュで置くファイルを、生の大きさでこれくらいずつ gzip にして上げる
 
 
 def aws(*args):
     cmd = ["aws", "--endpoint-url", f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com", *args]
     print("+ aws " + " ".join(args), flush=True)
     subprocess.run(cmd, check=True)
+
+
+def aws_out(*args):
+    """aws を動かして標準出力の JSON を返す (結果が無ければ None)。"""
+    cmd = ["aws", "--endpoint-url", f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com", *args,
+           "--output", "json"]
+    print("+ aws " + " ".join(args), flush=True)
+    r = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, text=True)
+    return json.loads(r.stdout) if r.stdout.strip() else None
+
+
+def list_keys(bucket, prefix):
+    """R2 の prefix の下のキーの集まり (aws がページを続けて取る)。"""
+    return set(aws_out("s3api", "list-objects-v2", "--bucket", bucket, "--prefix", prefix,
+                       "--query", "Contents[].Key") or [])
+
+
+def upload_store(ddir, staged, bucket, dist):
+    """DIR/<版>/sheets/ と bingroups/ のうち、R2 に無いファイルを上げる (画像と生データ)。"""
+    have = set()
+    for kind in STORE:
+        have |= list_keys(bucket, f"{dist}/{kind}/")
+    todo = []
+    for kind in STORE:
+        for root, _, files in os.walk(os.path.join(ddir, kind)):
+            for name in files:
+                path = os.path.join(root, name)
+                key = f"{dist}/{os.path.relpath(path, ddir)}"
+                if key not in have:
+                    todo.append((path, key))
+    print(f"{dist}: 中身のハッシュの名前のファイル {len(todo)} 個を上げる (R2 にあるもの {len(have)} 個)", flush=True)
+    batch, size = [], 0
+    for item in sorted(todo, key=lambda t: t[1]) + [None]:
+        if item is not None:
+            batch.append(item)
+            size += os.path.getsize(item[0])
+        if batch and (item is None or size >= BATCH_BYTES):
+            bdir = os.path.join(staged, "batch")
+            for path, key in batch:
+                stage_file(path, os.path.join(bdir, key))
+            put_tree(bdir, bucket, "", [".png", ".bin"])
+            shutil.rmtree(bdir)
+            batch, size = [], 0
+
+
+def upload_floors(ddir, staged, bucket, dist):
+    """床の manifest と region.json を上げる (毎回。シートを上げた後で)。"""
+    fdir = os.path.join(ddir, FLOORS)
+    for name in sorted(os.listdir(fdir)):
+        src = os.path.join(fdir, name)
+        if not os.path.isdir(src):
+            continue
+        sdir = os.path.join(staged, dist, FLOORS, name)
+        for f in ("region.json", "manifest.json"):
+            if os.path.exists(os.path.join(src, f)):
+                stage_file(os.path.join(src, f), os.path.join(sdir, f))
+        put_jsons(sdir, bucket, f"{dist}/{FLOORS}/{name}/")
+        shutil.rmtree(sdir, ignore_errors=True)
+
+
+def delete_legacy(bucket, dist):
+    """<版>/ の下の、sheets/・bingroups/・floors/ 以外のディレクトリを消す (v4 を配る前の、地域ごとの置き方)。"""
+    keep = set(STORE) | {FLOORS}
+    prefixes = aws_out("s3api", "list-objects-v2", "--bucket", bucket, "--prefix", f"{dist}/", "--delimiter", "/",
+                       "--query", "CommonPrefixes[].Prefix") or []
+    for p in prefixes:
+        if p.split("/")[1] not in keep:
+            print(f"{p}: 前の置き方なので消す", flush=True)
+            aws("s3", "rm", f"s3://{bucket}/{p}", "--recursive", "--only-show-errors")
 
 
 def exists(bucket, key):
@@ -96,6 +171,7 @@ def put_tree(local, bucket, prefix, exts):
 def main():
     ap = argparse.ArgumentParser(description="build_site.py --r2 で分けた地域を R2 に上げる")
     ap.add_argument("dir")
+    ap.add_argument("--delete-legacy", default="", help="この版 (v4) の、中身のハッシュで置く前の地域ごとの置き方を消す")
     ap.add_argument("--force", default="", help="R2 にあっても上げ直す地域 (空白かカンマ区切り。v3/osaka のように版も付けると、その版だけ)")
     args = ap.parse_args()
     for k in ("R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "R2_BUCKET"):
@@ -110,16 +186,20 @@ def main():
             ddir = os.path.join(args.dir, dist)
             if not os.path.isdir(ddir):
                 continue
-            floors = []  # v4 の床の manifest (own/ を全部上げた後で上げる)
+            if os.path.isdir(os.path.join(ddir, FLOORS)):
+                # v4: 中身のハッシュの名前で置いたファイル → 床の manifest
+                upload_store(ddir, staged, bucket, dist)
+                upload_floors(ddir, staged, bucket, dist)
+                if dist == args.delete_legacy:
+                    delete_legacy(bucket, dist)
             for name in sorted(os.listdir(ddir)):
                 rdir = os.path.join(ddir, name)
                 if not os.path.isdir(rdir):
                     continue
+                if not os.path.exists(os.path.join(rdir, "manifest.json")):
+                    continue  # v4 の sheets/ など (上で上げた)
                 prefix = f"{dist}/{name}/"
                 sdir = os.path.join(staged, dist, name)
-                if os.path.isdir(os.path.join(rdir, "own")):
-                    floors.append((rdir, sdir, prefix))
-                    rdir, sdir, prefix = os.path.join(rdir, "own"), os.path.join(sdir, "own"), prefix + "own/"
                 if name in force or f"{dist}/{name}" in force or not exists(bucket, prefix + "manifest.json") \
                         or images_missing(rdir, bucket, prefix):
                     print(f"{prefix}: 上げる")
@@ -136,14 +216,6 @@ def main():
                 else:
                     print(f"{prefix}: R2 にある (上げない)")
                 shutil.rmtree(sdir, ignore_errors=True)
-            for rdir, sdir, prefix in floors:
-                if os.path.exists(os.path.join(rdir, "manifest.json")):  # Pages の地域はまとめた .bin (own/) だけ
-                    print(f"{prefix}: 床の manifest を上げる")
-                    for name in ("region.json", "manifest.json"):
-                        if os.path.exists(os.path.join(rdir, name)):
-                            stage_file(os.path.join(rdir, name), os.path.join(sdir, name))
-                    put_jsons(sdir, bucket, prefix)
-                    shutil.rmtree(sdir, ignore_errors=True)
             index = os.path.join(ddir, "index.json")
             if os.path.exists(index):
                 stage_file(index, os.path.join(staged, dist, "index.json"))

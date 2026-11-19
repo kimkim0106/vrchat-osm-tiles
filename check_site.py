@@ -72,7 +72,7 @@ def check_dist(base, version):
             for lv in manifest["levels"]:
                 picks.add(lv["offset"])
         def url_of(path):
-            return path if path.startswith("https://") else root + path  # v4 はほかの地域の own/ を絶対 URL で指す
+            return path if path.startswith("https://") else root + path  # v4 は共有のシート (v4/sheets/) を絶対 URL で指す
 
         for i in sorted(picks):
             url = url_of(images[i]["png"])

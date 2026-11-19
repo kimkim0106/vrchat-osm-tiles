@@ -9,7 +9,7 @@
   - 持ち主: 焼いた地域は、焼いたタイルの一覧 (持ち物の一覧。Release の <地域>.own.json.gz) を残す。一覧にあるタイルは
     その地域が持ち主 (焼き直すときも同じタイルを焼く)。どの一覧にも無いタイルは、範囲に含む一覧の無い地域を
     (1) Pages の地域 ("host" が r2 でない) が先、(2) regions.json の並び、の順に並べた最初の地域が持ち主。
-    持ち主だけがそのタイルを焼いて置く (<持ち主>/own/)。焼いた地域の持ち物は変わらないので、地域を足しても、
+    持ち主だけがそのタイルを焼く (<持ち主>/own/。配るときは中身のハッシュの名前で置き直す)。焼いた地域の持ち物は変わらないので、地域を足しても、
     一部の地域だけ焼けて実行し直しても、焼いたタイルは変わらない (Release に地域があるかで決めると、焼けなかった地域の
     分を焼いた隣の地域の持ち物とみなして穴が空く。Codex のレビューで指摘)。
     Pages を先にするのは、信頼済みのドメインで読める地域 (東京) の床が、R2 (「Allow Untrusted URLs」が要る) の
@@ -21,17 +21,18 @@
                   は動かさず、先に置いてあるものとして扱う。ラベルは基準点のあるタイルの持ち主の分になる
       bake        地域ごとに、持ち物のタイルを置いたラベルで焼き、シートにまとめる (並行)
     丁目のまとめと同名の除去の距離は、候補ごとにその緯度で測る (地域の中心の緯度ではなく)。
-  - 置き場所: site/v4/<地域>/own/ が持ち物 (manifest.json = シートの manifest (タイルは持ち物だけ)、sheets/、labels.json.gz)。
-    Release (タグ v4) の <地域>.tar.gz はこの own/ と、置いたラベル <地域>.labels.json.gz。
-    配るときに assemble が site/v4/<地域>/manifest.json (床が読む manifest) を作る: 範囲のタイルを全部並べ、
-    シートと まとめた .bin は持ち主の own/ の絶対 URL で指す (sheets[i].png / bin、binGroups[g].bin。binGroupBase は "")。
-    範囲の中に、配っていない地域が持つタイルがあると止まる。
-
+  - 焼いた形: site/v4/<地域>/own/ が持ち物 (manifest.json = シートの manifest (タイルは持ち物だけ)、sheets/、labels.json.gz)。
+    Release (タグ v4) の <地域>.tar.gz はこの own/ と、置いたラベル <地域>.labels.json.gz。持ち主は焼く単位で、配る URL には出ない。
+  - 配る形 (publish。2026-11-19 に地域ごとのディレクトリから変えた。利用者の判断): 地域をまたいで共有するファイルは
+    ズームごとのディレクトリに、中身のハッシュの名前で置く (v4/sheets/<z>/<ハッシュ>.png / .bin、v4/bingroups/<z>/<ハッシュ>.bin)。
+    同じ中身なら同じ URL、焼き直して中身が変われば別の URL になるので、古いワールドが読むファイルは上書きされない。
+    床が読む manifest は v4/floors/<地域>/manifest.json (範囲のタイルを全部並べ、シートと まとめた .bin は絶対 URL。
+    binGroupBase は "")。範囲の中に、配っていない地域が持つタイルがあると止まる。
 使い方 (手元):
   python vmt_v4.py candidates --region tokyo --mbtiles tokyo=MapData/tokyo.mbtiles --out work/v4/cands
   python vmt_v4.py labels --cands work/v4/cands --out work/v4/plans
   python vmt_v4.py bake --region tokyo --mbtiles tokyo=MapData/tokyo.mbtiles --plans work/v4/plans --site site --tools TOOLS
-  (配る索引は build_site.py --index-only が作る (中で assemble を呼ぶ))
+  (配る形と索引は build_site.py --index-only が作る (中で publish を呼ぶ))
 --inventory には、焼いた地域の持ち物の一覧をまとめたもの ({地域: [[z, x, y], ...]}、inventory コマンドが Release の
 <地域>.own.json.gz から作る) を渡す。Actions は plan job で作ったものを、どの段にも同じものを渡す。無ければ、まだ焼いた地域が無い。
 地域の定義 (regions.json の 1 件) は own/manifest.json の sourceRegion に残す (regions.json から消した地域の床の manifest も作れるように)。
@@ -39,6 +40,7 @@
 import argparse
 import glob
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -64,6 +66,7 @@ def lonlat_to_tile(lon, lat, z):
     return int((lon + 180.0) / 360.0 * n), int((1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * n)
 
 DIST = b.GLYPH_DIST
+HASH_LEN = 16           # 配るファイルの名前にする中身の SHA-256 の桁数 (16 進)
 CITY_ZOOMS = (13, 14)   # 都市の地域が焼くズーム (床の全体と足元)。z10〜z12 は今の床が読まないので焼かない
 WIDE_MAX_ZOOM = 11      # これ以下のズームは広域の作り方、これより上は都市の作り方
 # 焼いたタイルの中身を決める設定。同じズームのタイルは、どの地域が焼いても同じ設定でないといけない
@@ -347,77 +350,113 @@ def bake(region, regions, inventory, mbtiles, plan_path, site, tools, work, jobs
 
 # ---------------------------------------------------------------- 4. 床が読む manifest
 
-def own_dirs(regions, site, r2):
-    """{地域: (host, own のディレクトリ)}。host は置き場所 (URL を決める)。Pages の地域の own/ は、まとめた .bin のために
-    R2 側にも manifest の写しができる (vmt_bingroup.py) ので、置き場所の側を選ぶ。
-    r2 を渡さない (手元で --r2 なしに索引を作る) ときは、R2 に置く地域の持ち物も site/ にあるので、それを使う
-    (URL は R2 のまま。Codex のレビューで指摘)。"""
-    hosts = {r["name"]: b.host_of(r, DIST) for r in regions}
-    found = {}
-    for host, root in (("pages", site), ("r2", r2)):
-        if not root:
-            continue
-        for path in sorted(glob.glob(os.path.join(root, DIST, "*", "own", "manifest.json"))):
-            d = os.path.dirname(path)
-            found.setdefault(os.path.basename(os.path.dirname(d)), {})[host] = d
+def content_key(kind, z, path, cache):
+    """中身のハッシュで決めた置き場所 (v4/ の下の <kind>/<z>/<ハッシュ>.<拡張子>)。同じ中身なら同じ名前になる。"""
+    if path not in cache:
+        if not os.path.exists(path):
+            sys.exit(f"{path}: 無い")
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        cache[path] = f"{kind}/{z}/{h.hexdigest()[:HASH_LEN]}{os.path.splitext(path)[1]}"
+    return cache[path]
+
+
+def own_dirs(site):
+    """{地域: own のディレクトリ}。Release から site/v4/<地域>/own/ に戻した持ち物。"""
     out = {}
-    for name, where in found.items():
-        host = hosts.get(name)
-        if host is None:  # regions.json から消した地域は、残した定義の host
-            with open(os.path.join(next(iter(where.values())), "manifest.json"), encoding="utf-8") as f:
-                host = b.host_of(json.load(f).get("sourceRegion") or {}, DIST)
-        d = where.get(host) or (where.get("pages") if not r2 else None)
-        if d is None:
-            sys.exit(f"{name}: v4 の持ち物が {host} の側に無い")
-        out[name] = (host, d)
+    for path in sorted(glob.glob(os.path.join(site, DIST, "*", "own", "manifest.json"))):
+        d = os.path.dirname(path)
+        out[os.path.basename(os.path.dirname(d))] = d
     return out
 
 
-def assemble(regions, site, r2, pages_url, r2_url):
+def put_file(src, root, key):
+    """src を root/v4/<key> に置く (同じファイルシステムならハードリンク。中身で名前が決まるので、あれば同じもの)。"""
+    dst = os.path.join(root, DIST, key)
+    if os.path.exists(dst):
+        return
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)
+
+
+def publish(regions, site, r2, pages_url, r2_url):
     """
-    v4 の地域ごとに、範囲のタイルを全部並べた manifest (床が読む) と region.json を、持ち物のディレクトリの隣に作る。
-    シートと まとめた .bin は持ち主の own/ の絶対 URL で指す。
+    Release から戻した持ち物 (site/v4/<地域>/own/) から、配る形を作る:
+      <置き場所>/v4/sheets/<z>/<ハッシュ>.png / .bin     シート (持ち主の own/ のもの。名前は中身の SHA-256 の先頭 16 桁)
+      <R2>/v4/bingroups/<z>/<ハッシュ>.bin              まとめた .bin (Pages の床のものも R2)
+      <置き場所>/v4/floors/<地域>/manifest.json         床が読む manifest (範囲のタイルを全部並べ、シートは絶対 URL)
+      <置き場所>/v4/floors/<地域>/region.json
+    置き場所は床ごと (地域の host)。R2 にはどの床も置く (Pages の床も、R2 の URL で指す写しを置く)。
+    Pages には Pages の床が指すシートだけを置く。r2 を渡さない (手元で --r2 なしに作る) ときは、R2 の分も site/ に置く。
+    作り終えたら持ち物のディレクトリ (site/v4/<地域>/) は消す (配らない)。
     """
-    dirs = own_dirs(regions, site, r2)
+    dirs = own_dirs(site)
     if not dirs:
         return
     by_name = {r["name"]: r for r in regions}
-    batches, where = {}, {}
-    for name, (host, d) in dirs.items():
+    cache, batches, where = {}, {}, {}
+    for name, d in dirs.items():
         with open(os.path.join(d, "manifest.json"), encoding="utf-8") as f:
             m = json.load(f)
-        base = (pages_url if host == "pages" else r2_url)
-        if not base:
-            sys.exit(f"{name}: {host} の URL が無い (--pages-url / --r2-url (配るときは --bin-groups))")
-        batches[name] = (m, base.rstrip("/") + f"/{DIST}/{name}/own/")
+        for s in m["sheets"]:
+            s["pngKey"] = content_key("sheets", s["z"], os.path.join(d, s["png"]), cache)
+            if s.get("bin"):
+                s["binKey"] = content_key("sheets", s["z"], os.path.join(d, s["bin"]), cache)
+        for g in m.get("binGroups") or []:
+            g["binKey"] = content_key("bingroups", g["z"], os.path.join(d, g["bin"]), cache)
+        batches[name] = (m, d)
         for i, t in enumerate(m["tiles"]):
             k = (t["z"], t["x"], t["y"])
             if k in where:
                 sys.exit(f"v4 のタイル {k} を {where[k][0]} と {name} の両方が持っている")
             where[k] = (name, i)
-    for name, (host, d) in dirs.items():
-        # regions.json から消した地域も、残した定義で床の manifest を作り続ける (公開済みのワールドが読む)
+    roots = {"pages": site, "r2": r2 or site}
+    bases = {"pages": pages_url, "r2": r2_url}
+    for name in dirs:
+        # regions.json から消した地域も、残した定義で床の manifest を作り続ける
         r = by_name.get(name) or batches[name][0].get("sourceRegion")
         if r is None:
             sys.exit(f"{name}: regions.json に無く、持ち物の manifest に sourceRegion も無い")
-        manifest = region_manifest(r, batches, where)
-        out = os.path.dirname(d)
-        with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=1)
-        own_m = batches[name][0]
-        entry = b.region_entry(r, manifest)
-        entry["pngBytes"] = sum(s["pngBytes"] for s in own_m["sheets"])  # 置いてある大きさ (持ち物だけ)
-        entry["binBytes"] = sum(s.get("binBytes", 0) for s in own_m["sheets"])
-        entry["ownTiles"] = len(own_m["tiles"])
-        entry["owners"] = manifest["owners"]
-        b.write_region_json(out, entry)
-        print(f"{name}: v4 の床の manifest ({len(manifest['tiles'])} タイル、シート {len(manifest['sheets'])} 枚、"
-              f"持ち主 {', '.join(manifest['owners'])})", flush=True)
+        host = b.host_of(r, DIST)
+        for h in [host] + (["r2"] if host != "r2" and r2 else []):
+            if not bases[h]:
+                sys.exit(f"{name}: {h} の URL が無い (--pages-url / --r2-url (配るときは --bin-groups))")
+            manifest, sheet_files, group_files = region_manifest(r, batches, where, url_of(bases[h]), url_of(r2_url))
+            if group_files and not r2_url:
+                sys.exit(f"{name}: まとめた .bin を指す R2 の URL が無い")
+            for src, key in sheet_files:
+                put_file(src, roots[h], key)
+            for src, key in group_files:
+                put_file(src, roots["r2"], key)
+            out = os.path.join(roots[h], DIST, b.GLYPH_FLOORS, name)
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=1)
+            entry = b.region_entry(r, manifest)
+            entry["manifest"] = f"{b.GLYPH_FLOORS}/{name}/manifest.json"
+            entry["ownTiles"] = len(batches[name][0]["tiles"])
+            entry["owners"] = manifest["owners"]
+            b.write_region_json(out, entry)
+            print(f"{name}: v4 の床の manifest ({h}、{len(manifest['tiles'])} タイル、シート {len(manifest['sheets'])} 枚、"
+                  f"持ち主 {', '.join(manifest['owners'])})", flush=True)
+    for name in dirs:
+        shutil.rmtree(os.path.join(site, DIST, name))
 
 
-def region_manifest(region, batches, where):
+def url_of(base):
+    return (base.rstrip("/") + f"/{DIST}/") if base else None
+
+
+def region_manifest(region, batches, where, sheet_base, group_base):
+    """床が読む manifest と、それが指すファイル [(元のパス, 置き場所)] (シートと まとめた .bin) を返す。"""
     levels = levels_of(region)
     tiles, sheets, groups = [], [], []
+    sheet_files, group_files = [], []
     sheet_index, group_index = {}, {}
     common = None
     for lv in levels:
@@ -428,7 +467,7 @@ def region_manifest(region, batches, where):
                 if k not in where:
                     sys.exit(f"{region['name']}: v4 のタイル {k} の持ち主が配られていない")
                 owner, ti = where[k]
-                m, base = batches[owner]
+                m, d = batches[owner]
                 c = {key: m.get(key) for key in COMMON_KEYS}
                 if common is None:
                     common = c
@@ -440,21 +479,26 @@ def region_manifest(region, batches, where):
                 sk = (owner, t["sheet"])
                 if sk not in sheet_index:
                     src = m["sheets"][t["sheet"]]
-                    e = {key: v for key, v in src.items() if key not in ("tiles", "binGroup", "binGroupRow")}
-                    e["png"] = base + src["png"]
+                    e = {key: v for key, v in src.items()
+                         if key not in ("tiles", "binGroup", "binGroupRow", "pngKey", "binKey")}
+                    e["png"] = sheet_base + src["pngKey"]
+                    sheet_files.append((os.path.join(d, src["png"]), src["pngKey"]))
                     if src.get("bin"):
-                        e["bin"] = base + src["bin"]
+                        e["bin"] = sheet_base + src["binKey"]
+                        sheet_files.append((os.path.join(d, src["bin"]), src["binKey"]))
                     e["owner"] = owner
                     e["tiles"] = []
                     if "binGroup" in src:
                         gk = (owner, src["binGroup"])
                         if gk not in group_index:
-                            g = dict(m["binGroups"][src["binGroup"]])
-                            g["bin"] = m["binGroupBase"] + g["bin"]
+                            g0 = m["binGroups"][src["binGroup"]]
+                            g = {key: v for key, v in g0.items() if key != "binKey"}
+                            g["bin"] = group_base + g0["binKey"]
                             g["owner"] = owner
                             g["sheets"] = []
                             group_index[gk] = len(groups)
                             groups.append(g)
+                            group_files.append((os.path.join(d, g0["bin"]), g0["binKey"]))
                         e["binGroup"] = group_index[gk]
                         e["binGroupRow"] = src["binGroupRow"]
                         groups[group_index[gk]]["sheets"].append(len(sheets))
@@ -476,7 +520,7 @@ def region_manifest(region, batches, where):
     if groups:
         out["binGroupBase"] = ""  # binGroups[g].bin は絶対 URL
         out["binGroups"] = groups
-    return out
+    return out, sheet_files, group_files
 
 
 # ---------------------------------------------------------------- コマンド

@@ -475,7 +475,9 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           MADE: ${{ needs.plan.outputs.made }}
-        run: python r2_upload.py r2site --force "$MADE"
+        # --delete-legacy v4: v4 を中身のハッシュの名前で置く前の、地域ごとの置き方 (v4/<地域>/) を消す (どのワールドも読む前。
+        # 消し終われば何もしない)
+        run: python r2_upload.py r2site --force "$MADE" --delete-legacy v4
 
       - name: R2 の設定が無い
         if: env.R2_ACCOUNT_ID == '' || env.R2_BUCKET == ''
