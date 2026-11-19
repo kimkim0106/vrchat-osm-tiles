@@ -53,7 +53,7 @@ v3 / v4 は dists か releaseOnly にその版がある地域 (dists が無け�
 配る前に確かめたいとき (R2 の v3 など) に使い、確かめたら dists に移す (Release から戻して配る。焼き直さない)。
 
 regions.json の地域に "host": "r2" があれば、Pages ではなく Cloudflare R2 に置く (Pages の 1 GB に入らないため)。
-v4 は地域の host によらず、どの地域も R2 に置く (DIST_HOSTS)。
+v4 は地域の host によらず、既定で R2 に置く (DIST_HOSTS)。地域の "hosts": {"v4": "pages"} があれば Pages に置く。
 --r2 DIR を付けると、索引を作る前にその地域を site/ から DIR/ に移し、DIR/ にも R2 用の索引を作る。
 DIR/ を R2 に上げるのは r2_upload.py。R2 は VRChat の信頼済みドメインではないので、
 その地域は「Allow Untrusted URLs」をオンにした人にしか読めない。
@@ -100,14 +100,14 @@ SHEET_DISTS = (SHEET_DIST, POI_DIST, GLYPH_DIST)  # シートの版 (binGroups �
 WIDE_DISTS = (POI_DIST, GLYPH_DIST)               # 広域の地図で作れる版
 SITE_LIMIT = 900e6             # GitHub Pages のサイトは 1 GB まで
 HOSTS = ("pages", "r2")        # regions.json の host (書かなければ pages)
-# 版ごとの置き場所 (地域の host より優先)。v4 は Pages の 1 GB に v3 と一緒に入らないので、どの地域も R2 に置く
-# (2026-11-19、利用者の判断。v4 の床はすべて「Allow Untrusted URLs」がオンの人にしか読めない)
+# 版ごとの置き場所の既定 (地域の host より優先)。v4 は Pages の 1 GB に v3 と一緒に入らないので、既定は R2
+# (2026-11-19、利用者の判断)。地域の "hosts": {"v4": "pages"} がそれより優先 (東京と広域は、v3 を外して Pages に置く)
 DIST_HOSTS = {GLYPH_DIST: "r2"}
 
 
 def host_of(region, dist):
-    """その地域のその版の置き場所 (pages / r2)。"""
-    return DIST_HOSTS.get(dist) or region.get("host", "pages")
+    """その地域のその版の置き場所 (pages / r2)。地域の hosts → DIST_HOSTS → 地域の host の順。"""
+    return (region.get("hosts") or {}).get(dist) or DIST_HOSTS.get(dist) or region.get("host", "pages")
 
 
 def default_pages_url():
@@ -285,6 +285,9 @@ def validate_regions(regions):
             sys.exit(f"{r['name']}: 同じ版を dists と releaseOnly の両方に書いている")
         if r.get("host", "pages") not in HOSTS:
             sys.exit(f"{r['name']}: host は {' / '.join(HOSTS)} のどれか")
+        hosts = r.get("hosts") or {}
+        if set(hosts) - set(DISTS) or set(hosts.values()) - set(HOSTS):
+            sys.exit(f"{r['name']}: hosts は {{版: {' / '.join(HOSTS)}}}")
         if r.get("wide"):
             made = set(dists or []) | set(only)
             if not made or made - set(WIDE_DISTS):

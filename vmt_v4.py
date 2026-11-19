@@ -422,6 +422,8 @@ def publish(regions, site, r2, pages_url, r2_url):
         r = by_name.get(name) or batches[name][0].get("sourceRegion")
         if r is None:
             sys.exit(f"{name}: regions.json に無く、持ち物の manifest に sourceRegion も無い")
+        # (regions.json から消した地域は残した定義の hosts。無ければ v4 の既定の置き場所。焼いた後で hosts を変えた地域は、
+        # regions.json から消すと置き場所が変わりうる)
         host = b.host_of(r, DIST)
         for h in [host] + (["r2"] if host != "r2" and r2 else []):
             if not bases[h]:
