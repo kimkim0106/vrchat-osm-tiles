@@ -22,6 +22,8 @@ floors/ 以外のディレクトリ (v4 を配る前の、地域ごとの置き�
 
 圧縮: .bin (RGB24 の生データ) と .json / .html は gzip にして Content-Encoding: gzip を付けて置く。
 PNG はもともと圧縮してあるのでそのまま。Pages も .bin を gzip で返している (UnityWebRequest は自分で展開する)。
+gzip は CPU の数だけ並列にする (stage_files。zlib は圧縮の間 GIL を放すのでスレッドで並ぶ)。設定 (レベル 9、mtime 0) は
+1 つずつのときと同じなので、上げるファイルの中身も同じ (v4 を全部焼き直すと、まとめた .bin 約 200 本を全部 gzip にする)。
 
 aws CLI (S3 互換 API) を使う。環境変数:
   R2_ACCOUNT_ID, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   (R2 の API トークン)
@@ -37,6 +39,7 @@ import json
 import os
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import tempfile
 
@@ -47,6 +50,7 @@ GZIP = {".bin", ".json", ".html"}
 STORE = ("sheets", "bingroups")   # 中身のハッシュの名前で置くディレクトリ (v4)
 FLOORS = "floors"                 # v4 の床の manifest
 BATCH_BYTES = 2e9                 # 中身のハッシュで置くファイルを、生の大きさでこれくらいずつ gzip にして上げる
+WORKERS = os.cpu_count() or 4     # gzip を並列にする数
 
 
 def aws(*args):
@@ -91,8 +95,7 @@ def upload_store(ddir, staged, bucket, dist):
             size += os.path.getsize(item[0])
         if batch and (item is None or size >= BATCH_BYTES):
             bdir = os.path.join(staged, "batch")
-            for path, key in batch:
-                stage_file(path, os.path.join(bdir, key))
+            stage_files([(path, os.path.join(bdir, key)) for path, key in batch])
             put_tree(bdir, bucket, "", [".png", ".bin"])
             shutil.rmtree(bdir)
             batch, size = [], 0
@@ -140,10 +143,23 @@ def exists(bucket, key):
 
 def stage(src, dst):
     """src の木を dst に写す。GZIP の拡張子は gzip にする (名前はそのまま)。"""
+    pairs = []
     for root, _, files in os.walk(src):
         for name in files:
             s = os.path.join(root, name)
-            stage_file(s, os.path.join(dst, os.path.relpath(s, src)))
+            pairs.append((s, os.path.join(dst, os.path.relpath(s, src))))
+    stage_files(pairs)
+
+
+def stage_files(pairs):
+    """(元, 先) の組を並列に stage_file する。1 つでも失敗したら、その例外を出す。"""
+    if len(pairs) <= 1 or WORKERS <= 1:
+        for s, d in pairs:
+            stage_file(s, d)
+        return
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        for _ in ex.map(lambda p: stage_file(*p), pairs):
+            pass
 
 
 def stage_file(s, d):
