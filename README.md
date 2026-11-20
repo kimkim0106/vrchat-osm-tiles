@@ -43,6 +43,21 @@ v2 までのワールドのシェーダーは POI を地名と区別できない
 共有の字のアトラスから Unicode の文字コードで引きます (下の「形式の版」)。また、地域をまたいで同じタイルを 1 回だけ焼いて 1 か所に置きます
 (下の「v4: 重複しない持ち方」)。
 
+## 地形 (標高)
+
+ワールドの床に起伏を付けるための標高も R2 に置きます (`vmt_terrain.py`、Actions は `terrain.yml`。タイルの配信とは別)。
+
+```
+<R2 の公開 URL>/terrain/v1/floors/<地域>.json                                 床の地形の索引 (データの URL・寸法・最高点など)
+<R2 の公開 URL>/terrain/v1/data/<ハッシュ>.bin                                標高 (名前は中身のハッシュ)
+```
+
+床 1 つに 1 本で、範囲は v4 の床の manifest の `levels[0]` (base のズームとタイルの範囲) と同じです。base タイル 1 枚を
+64 x 64 点にし、1 点 3 バイト (国土地理院の dem_png と同じ 24 bit、0.01 m 単位。海は 0 m)、行は北から南へ並べます。
+都市の床は 640 x 704 点で 1.35 MB (gzip で転送)。ワールドは String Loading で取り、高さのテクスチャと足元の当たり判定に使います。
+焼くのは R2 に索引がまだ無い地域と、手動実行の `rebuild` に指定した地域だけです。焼き直して中身が変わると新しい名前で置き、
+索引だけが新しいものを指します (古いワールドが読むデータは消しません)。
+
 ## ツール
 
 ```
@@ -342,4 +357,6 @@ v4 のタイルは、ラベルの字をどれも Unicode の文字コードで�
 - 広域の地図の地名 (`labels/wide_japan.json` とそれを焼いたタイル): 「[国土数値情報（行政区域データ）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html)」
   「[国土数値情報（鉄道データ）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html)」（国土交通省）を加工して作成 (CC BY 4.0)。
   ワールド内の帰属表示にも足してください (manifest の `labelAttribution`)。
+- 標高 (`terrain/`): [国土地理院の標高タイル（DEM10B）](https://maps.gsi.go.jp/development/ichiran.html)を加工して作成。
+  ワールド内の帰属表示にも足してください (索引の `attribution`)。
 - タイルに含まれる文字の形: [Noto Sans CJK](https://github.com/notofonts/noto-cjk) (SIL Open Font License 1.1)

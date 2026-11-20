@@ -1,0 +1,90 @@
+name: 地形 (標高) を焼いて R2 に置く
+
+# ワールドの床の地形 (Issue #27) の標高を、国土地理院の標高タイルから床ごとに焼いて R2 に置く (vmt_terrain.py の冒頭)。
+# タイルの配信 (pages.yml) とは別にしている (標高は床の頂点数と関係がなく、地図を焼き直さなくても足せるため)。
+# 焼くのは、R2 に床の索引 (terrain/v1/floors/<地域>.json) がまだ無い地域と、手動実行の rebuild に指定した地域だけ。
+# データは中身のハッシュの名前で置くので、焼き直しても古いワールドが読むファイルは消えない。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - vmt_terrain.py
+      - .github/workflows/terrain.yml
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "焼く地域 (カンマ区切り、all で全部)"
+        required: false
+        default: "all"
+      rebuild:
+        description: "R2 にあっても焼き直す地域 (カンマ区切り、all で全部)。中身が変わると索引が新しいデータを指す"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terrain
+  cancel-in-progress: false
+
+jobs:
+  terrain:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # 国土地理院の標高タイルは変わることが少ないので、取ったものを残して取りに行く回数を減らす
+      - name: 標高タイルのキャッシュ
+        uses: actions/cache@v6
+        with:
+          path: build/dem-cache
+          key: dem-${{ github.run_id }}
+          restore-keys: dem-
+
+      - name: 焼く
+        if: env.R2_PUBLIC_URL != ''
+        env:
+          REGIONS: ${{ inputs.regions || 'all' }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: python vmt_terrain.py build out --public "$R2_PUBLIC_URL" --regions "$REGIONS" --rebuild "$REBUILD"
+
+      - name: R2 に上げる
+        if: env.R2_ACCOUNT_ID != '' && env.R2_BUCKET != '' && env.R2_PUBLIC_URL != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: python vmt_terrain.py upload out
+
+      - name: R2 の設定が無い
+        if: env.R2_ACCOUNT_ID == '' || env.R2_BUCKET == '' || env.R2_PUBLIC_URL == ''
+        run: echo "::warning::R2 の Secrets / Variables が無いので、地形は焼いても上げていない"
+
+      # VRChat はリダイレクトを読めないので、上げた索引と、索引が指すデータを実際の URL で確かめる
+      - name: 確かめる
+        if: env.R2_PUBLIC_URL != ''
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in out/terrain/v1/floors/*.json; do
+            name=$(basename "$f")
+            url=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$f")
+            curl -fsS -o /dev/null -w "%{http_code} %{url_effective}\n" "${R2_PUBLIC_URL%/}/terrain/v1/floors/$name"
+            curl -fsS -o /dev/null -w "%{http_code} %{size_download} %{url_effective}\n" "$url"
+          done
