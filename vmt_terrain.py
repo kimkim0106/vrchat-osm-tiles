@@ -12,6 +12,11 @@
                                                (上げるのは R2 に無いものだけ。古いワールドが読むファイルは消さない)
   terrain/v1/floors/<地域>.json                 床の地形の索引 (毎回上げる)。ワールドの床を作るときに読み、bin の URL と寸法を焼き込む
 
+小分け (索引の chunks / chunkRows): 同じ .bin を北から chunkRows 行ずつ (最後は残り) に切ったもの。名前は同じく中身のハッシュで
+data/ に置く。iOS の String Loading は約 800 KB から結果を途中で切る (VRChat の Canny、2026-06) ので、ワールドはまとめた 1 本が
+切れて届いたら小分けを順に取ってつなぐ。1 本は CHUNK_BYTES (256 KiB) 以下。索引に小分けが無い地域は、R2 の .bin を取って
+分けるだけで標高タイルは取り直さない (--rebuild に入れたときだけ焼き直す)。
+
 .bin の形式: 床の base タイル 1 枚 = SAMPLES x SAMPLES 点 (既定 64)。1 行 = 東西に baseW x SAMPLES 点、行は北から南へ
 baseH x SAMPLES 行。1 点 3 バイト (RGB24)。値は国土地理院の dem_png と同じ: x = R·2^16 + G·2^8 + B、x < 2^23 なら x × 0.01 m、
 それより大きければ (x − 2^24) × 0.01 m。データなし (海、タイルが無い所) は 0 m。点はそのマスの中心の標高で、取った標高タイルの
@@ -44,6 +49,7 @@ MAX_DEM_ZOOM = 14          # dem_png (DEM10B) は z14 まで
 PREFIX = "terrain/v1"
 ATTRIBUTION = "国土地理院 標高タイル (DEM10B)"
 USER_AGENT = "vrchat-osm-tiles-terrain/1"
+CHUNK_BYTES = 256 * 1024   # 小分け 1 本の上限 (iOS の String Loading が切らない大きさ)
 
 
 def curl(url, out=None):
@@ -146,6 +152,38 @@ def encode(hgt):
     return np.stack([(q >> 16) & 255, (q >> 8) & 255, q & 255], axis=-1).astype(np.uint8).tobytes()
 
 
+def write_chunks(data, width, height, datadir, public):
+    """data を北から行で切って datadir に置く。(1 本の行数, URL の並び)。"""
+    row_bytes = width * 3
+    if len(data) != row_bytes * height:
+        sys.exit(f"大きさが違う: {len(data)} / {row_bytes * height}")
+    n = max(1, math.ceil(len(data) / CHUNK_BYTES))
+    rows = math.ceil(height / n)
+    while rows * row_bytes > CHUNK_BYTES and rows > 1:
+        rows -= 1
+    urls = []
+    for r0 in range(0, height, rows):
+        part = data[r0 * row_bytes:min(height, r0 + rows) * row_bytes]
+        key = f"{hashlib.sha256(part).hexdigest()[:16]}.bin"
+        with open(os.path.join(datadir, key), "wb") as f:
+            f.write(part)
+        urls.append(f"{public}/{PREFIX}/data/{key}")
+    return rows, urls
+
+
+def add_chunks(index, datadir, public):
+    """R2 にある索引に小分けを足す (.bin を取って分けるだけ)。"""
+    tmp = os.path.join(datadir, "_whole.tmp")
+    code, _ = curl(index["url"], tmp)
+    with open(tmp, "rb") as f:
+        data = f.read()
+    os.remove(tmp)
+    if code != "200" or hashlib.sha256(data).hexdigest() != index["sha256"]:
+        sys.exit(f"{index['region']}: {index['url']} を取れなかったか中身が違う ({code}, {len(data)} バイト)")
+    index["chunkRows"], index["chunks"] = write_chunks(data, index["width"], index["height"], datadir, public)
+    return index
+
+
 def cmd_build(args):
     public = args.public.rstrip("/")
     with open("regions.json", encoding="utf-8") as f:
@@ -161,8 +199,16 @@ def cmd_build(args):
     os.makedirs(floordir, exist_ok=True)
     made = 0
     for name in wanted:
-        if name not in rebuild and fetch_json(f"{public}/{PREFIX}/floors/{name}.json") is not None:
-            print(f"{name}: R2 にあるので焼かない", flush=True)
+        have = None if name in rebuild else fetch_json(f"{public}/{PREFIX}/floors/{name}.json")
+        if have is not None:
+            if have.get("chunks"):
+                print(f"{name}: R2 にあるので焼かない", flush=True)
+                continue
+            index = add_chunks(have, datadir, public)
+            with open(os.path.join(floordir, f"{name}.json"), "w", encoding="utf-8") as f:
+                json.dump(index, f, ensure_ascii=False, indent=1)
+            made += 1
+            print(f"{name}: R2 の .bin を小分けにした ({len(index['chunks'])} 本、{index['chunkRows']} 行ずつ)", flush=True)
             continue
         manifest = fetch_json(f"{public}/v4/floors/{name}/manifest.json")
         if manifest is None:
@@ -195,6 +241,7 @@ def cmd_build(args):
             "landFraction": round(float(land.size / hgt.size), 3),
             "attribution": ATTRIBUTION,
         }
+        index["chunkRows"], index["chunks"] = write_chunks(data, index["width"], index["height"], datadir, public)
         with open(os.path.join(floordir, f"{name}.json"), "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=1)
         made += 1
@@ -211,6 +258,8 @@ def cmd_upload(args):
     have = r2_upload.list_keys(bucket, f"{PREFIX}/data/")
     todo = []
     for name in sorted(os.listdir(os.path.join(root, "data"))):
+        if not name.endswith(".bin"):
+            continue
         key = f"{PREFIX}/data/{name}"
         if key not in have:
             todo.append((os.path.join(root, "data", name), os.path.join(staged, key)))
