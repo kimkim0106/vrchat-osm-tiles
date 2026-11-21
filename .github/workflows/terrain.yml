@@ -87,4 +87,7 @@ jobs:
             url=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$f")
             curl -fsS -o /dev/null -w "%{http_code} %{url_effective}\n" "${R2_PUBLIC_URL%/}/terrain/v1/floors/$name"
             curl -fsS -o /dev/null -w "%{http_code} %{size_download} %{url_effective}\n" "$url"
+            for c in $(python -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])).get("chunks", [])))' "$f"); do
+              curl -fsS -o /dev/null -w "%{http_code} %{size_download} %{url_effective}\n" "$c"
+            done
           done
