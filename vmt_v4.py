@@ -233,6 +233,8 @@ def candidates(region, mbtiles, tiles):
 # ---------------------------------------------------------------- 2. 配置
 
 LABEL_FIELDS = ("name", "x", "y", "size", "margin", "cat", "pri", "rank", "kmin", "kmax")
+# あるときだけ渡す欄 (道路番号。Issue #83 (ワールド側)): plate = 看板の形 (種類の既定と違うとき)、repeat / kcap = 置き方
+LABEL_OPTIONAL_FIELDS = ("plate", "repeat", "kcap")
 
 
 def place_all(regions, inventory, cand_files, frozen_files, tools):
@@ -294,7 +296,9 @@ def place_all(regions, inventory, cand_files, frozen_files, tools):
             per_lang = plans[owner].setdefault(f"{t[0]}/{t[1]}/{t[2]}", [[] for _ in range(li + 1)])
             while len(per_lang) <= li:
                 per_lang.append([])
-            per_lang[li].append({k: c[k] for k in LABEL_FIELDS})
+            lab = {k: c[k] for k in LABEL_FIELDS}
+            lab.update({k: c[k] for k in LABEL_OPTIONAL_FIELDS if k in c})
+            per_lang[li].append(lab)
             count += 1
         print(f"{'wide' if wide else 'city'} z{z} lang {li}: candidates {len(cands)}, fixed {len(fx)}, "
               f"placed {count} (dropped {dropped})", flush=True)

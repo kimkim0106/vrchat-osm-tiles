@@ -55,6 +55,10 @@
                    (タイル単位、10bit)。頂点レコードと同じ 12bit × 2。縦のずれは無い (箱の中心は基準点の高さ)
               T2 = 字 24bit (R = 上位 8bit)。最上位のビット (0x800000) が 0 なら Unicode の文字コード (21bit)、
                    1 なら残りの 23bit がタイルのアトラスの番号 (2026-11-20 より前に焼いたタイル。今のベイカーは書かない)
+                   0x400000 のビットが立っていれば道路番号の看板 (Issue #83。字ではない): ビット 20..21 = 形 (0 角の丸い長方形 /
+                   1 おにぎり / 2 六角形 / 3 下が丸い形)、ビット 10..17 = 看板の中心の縦のずれ / 高さ x 128 + 128、ビット 0..9 = 幅 / 高さ x 128。
+                   箱の一辺 (T1) は看板の高さ。看板は縁取りの段で描き (同じラベルの字の縁取りは描かない)、字は白で描く。
+                   看板を知らないシェーダーは表に無い文字コードとして描かない
               T3 = (kmin, kmax, 種類)。形式 1 と同じ
               字の箱はアトラスの 1 マス (32 px) 全体。字の形は箱の横の真ん中にインクの箱の真ん中、縦は基準線を
               (32 - (ascent + descent)) / 2 + ascent の高さに置く (TextMeshPro の <mspace> と同じ。共有のアトラスもこの置き方)
@@ -133,7 +137,44 @@ POI_CATEGORIES = {
     6: {"key": "lodging", "title": "宿泊", "size": 9, "pri": 5.2, "margin": 4, "dedup": 100.0},
     7: {"key": "food", "title": "飲食", "size": 9, "pri": 5.6, "margin": 3, "dedup": 50.0},
     8: {"key": "shop", "title": "買い物", "size": 9, "pri": 5.8, "margin": 3, "dedup": 50.0},
+    # 道路番号 (Issue #83。transportation_name レイヤーの線の真ん中に番号だけを置く)。拡大すると高速 → 国道 → 都道府県道の順に出るよう、
+    # 数字は漢字より背が低いので、字の大きさは地名・POI より大きくする。
+    # 優先度に加えて kcap (この k より大きい倍率 = 縮小した状態では出さない) を持つ。minz = このズームより下のタイルには載せない
+    # 同じ番号の候補は線の切れ目ごとに残し (dedup は上下線の重なりを消す程度)、置くときに repeat (512px のタイルでの px。倍率に比例)
+    # 以内に同じ番号があれば置かない。1 つ目がほかのラベルとぶつかっても、近くの別の候補が置けるように
+    9: {"key": "road_expressway", "title": "高速道路", "size": 14, "pri": 1.5, "margin": 10, "dedup": 300.0, "repeat": 220},
+    10: {"key": "road_national", "title": "国道", "size": 14, "pri": 2.8, "margin": 10, "dedup": 300.0, "repeat": 220},
+    11: {"key": "road_prefectural", "title": "都道府県道", "size": 13, "pri": 4.9, "margin": 10, "dedup": 300.0,
+         "repeat": 220, "minz": 14, "kcap": 4},
 }
+ROAD_CATEGORIES = (9, 10, 11)
+# 道路番号の看板 (Issue #83)。番号の前に看板のレコードを 1 つ置き、シェーダーが種類の色の図形を描いて、その上に番号を白で描く。
+# 寸法は字の大きさ (em = size px) を単位にし、番号のインクの中心が原点、+y が下。形ごとに:
+#   0 = 角の丸い長方形 (NEXCO などの高速の E 番号)、1 = おにぎり (国道。角の丸い逆三角で辺がふくらむ)、
+#   2 = 横長の六角形 (都道府県道)、3 = 上が平らで下が丸い形 (首都高・阪神高速などの都市高速)
+#   pad = 番号の幅に足す幅、minw = 最小の幅、h = 高さ、yoff = 看板の中心の縦のずれ (おにぎりは番号を上の広い所に置く)
+ROAD_PLATES = {
+    0: {"pad": 0.6, "minw": 1.3, "h": 1.2, "yoff": 0.0},
+    1: {"pad": 1.0, "minw": 2.0, "h": 1.95, "yoff": 0.34},
+    2: {"pad": 1.0, "minw": 1.9, "h": 1.3, "yoff": 0.0},
+    3: {"pad": 0.7, "minw": 1.5, "h": 1.5, "yoff": 0.14},
+}
+ROAD_DEFAULT_PLATE = {9: 0, 10: 1, 11: 2}  # 種類ごとの看板の形 (高速は路線網で 0 と 3 を分ける。road_category)
+PLATE_FLAG = 0x400000  # 字レコードの T2 のこのビットが立っていれば看板 (文字コードは 0x10FFFF まで、0x800000 は古いタイルのアトラスの番号)
+
+
+def plate_dims(lab):
+    """道路番号の看板の (幅, 高さ, 縦のずれ, 形) (512px のタイルでの px)。看板の無いラベルは None。"""
+    if lab.get("cat") not in ROAD_DEFAULT_PLATE:
+        return None
+    shape = lab.get("plate", ROAD_DEFAULT_PLATE[lab["cat"]])
+    pl = ROAD_PLATES[shape]
+    em = float(lab["size"])
+    tw = sum(lab["advs"]) / em
+    return max(tw + pl["pad"], pl["minw"]) * em, pl["h"] * em, pl["yoff"] * em, shape
+_ROAD_EXPRESSWAY_REF = re.compile(r"^[A-Z]{0,2}[0-9]{0,3}[A-Z]?$")
+_ROAD_NUMBER_REF = re.compile(r"^[0-9]{1,3}$")
+_URBAN_EXPRESSWAYS = ("首都高速", "阪神高速", "名古屋高速", "福岡高速", "北九州高速", "広島高速", "京都高速")
 POI_MAX_CHARS = 16  # これより長い名前の POI は載せない
 _POI_SKIP_SUFFIX = ("交番", "駐在所")  # 数が多く、観光の役に立たない
 _POI_SIGHT = {"attraction", "museum", "zoo", "aquarium", "theme_park", "castle", "monument", "viewpoint"}
@@ -164,6 +205,65 @@ def poi_category(props):
     if cls in _POI_SHOP or (cls == "library" and sub == "books"):
         return 8
     return None
+
+
+def road_category(props):
+    """transportation_name レイヤーの線の道路番号の (種類, 番号, 看板の形)。載せないものは None。
+    路線網 (route_1_network) があればそれで決め、無ければ class で決める (日本の OSM では trunk = 国道、primary = 主要地方道、
+    secondary = 一般の都道府県道)。番号が複数 ("4;5") なら最初のもの。"""
+    ref = props.get("route_1_ref") or props.get("ref")
+    if not isinstance(ref, str):
+        return None
+    ref = ref.split(";")[0].strip()
+    if not ref:
+        return None
+    net = props.get("route_1_network") or ""
+    cls = props.get("class")
+    if net == "JP:national":
+        cat = 10
+    elif net.startswith("JP:prefectural"):
+        cat = 11
+    elif net.startswith("JP:E") or "高速" in net or cls == "motorway":
+        cat = 9
+    elif cls == "trunk":
+        cat = 10
+    elif cls in ("primary", "secondary"):
+        cat = 11
+    else:
+        return None
+    if cls not in ("motorway", "trunk", "primary", "secondary"):
+        return None  # 区道の番号 (tertiary の "L98" など) や、建設中の道路
+    if not (_ROAD_EXPRESSWAY_REF if cat == 9 else _ROAD_NUMBER_REF).match(ref):
+        return None
+    shape = ROAD_DEFAULT_PLATE[cat]
+    if cat == 9:
+        # 都市高速 (首都高・阪神高速・名古屋高速など) は下が丸い看板、NEXCO などの E 番号は長方形
+        name = props.get("name") or ""
+        urban = (net and not net.startswith("JP:E") and "高速" in net) or \
+            (not net and any(name.startswith(n) for n in _URBAN_EXPRESSWAYS))
+        if urban and not ref.startswith("E"):
+            shape = 3
+    return cat, ref, shape
+
+
+def _line_midpoint(parts):
+    """線 (部分ごとの点の列) の長さで真ん中の点。いちばん長い部分の上に取る。"""
+    best, best_len = None, 0.0
+    for pts in parts:
+        segs = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+        total = sum(segs)
+        if total > best_len:
+            best, best_len = (pts, segs, total), total
+    if best is None:
+        return None
+    pts, segs, total = best
+    half = total / 2.0
+    for i, d in enumerate(segs):
+        if half <= d and d > 0:
+            t = half / d
+            return pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t
+        half -= d
+    return pts[-1]
 
 
 def label_categories():
@@ -759,12 +859,15 @@ def label_candidates(db, z, tiles):
     """ズーム z の全タイルから地名と POI の候補を集める。座標はズーム z 全体でのタイル単位 (タイル x * 4096 + タイル内 x)。"""
     lang = LABEL_CONFIG["lang"]
     layers = ("place", "poi") if LABEL_CONFIG.get("poi", True) else ("place",)
+    roads = LABEL_CONFIG.get("poi", True)
     cands = []
     for tx, ty in tiles:
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=layers)
+        decoded = decode_mvt(data, only=layers + (("transportation_name",) if roads else ()))
+        if roads:
+            road_candidates(decoded.get("transportation_name"), z, tx, ty, cands)
         for lname in layers:
             layer = decoded.get(lname)
             if not layer:
@@ -811,6 +914,37 @@ def label_candidates(db, z, tiles):
                               "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
                               "size": size, "margin": margin * LABEL_CONFIG["spacing"]})
     return cands
+
+
+def road_candidates(layer, z, tx, ty, cands):
+    """道路番号の候補 (POI_CATEGORIES の 9..11) を cands に足す。同じ番号の近いものは merge_labels が 1 つにする。"""
+    if not layer:
+        return
+    scale = EXTENT / float(layer["extent"])
+    for feat in layer["features"]:
+        if feat["type"] != 2 or not feat["geom"]:
+            continue
+        rc = road_category(feat["props"])
+        if rc is None:
+            continue
+        cat, ref, shape = rc
+        pc = POI_CATEGORIES[cat]
+        if z < pc.get("minz", 0):
+            continue
+        mid = _line_midpoint(feat["geom"])
+        if mid is None:
+            continue
+        x, y = mid[0] * scale, mid[1] * scale
+        if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
+            continue
+        c = {"pri": pc["pri"], "rank": 99, "name": ref, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+             "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"]}
+        if "kcap" in pc:
+            c["kcap"] = pc["kcap"]
+        c["repeat"] = pc["repeat"]
+        if shape != ROAD_DEFAULT_PLATE[cat]:
+            c["plate"] = shape
+        cands.append(c)
 
 
 def _unit_y(z, y):
@@ -969,12 +1103,18 @@ def place_labels(cands, fixed=()):
     hw = [0.0] * n
     hh = [0.0] * n
     mg = [0.0] * n
+    rp = [0.0] * n  # 同じ種類・同じ名前をこの距離 (倍率 1 のとき) 以内に置かない (道路番号)
     for i, c in enumerate(cands):
         k = c["size"] / float(LABEL_FONT_PX)
         c["advs"] = [glyph_advance(ch) * k for ch in c["name"]]
         hw[i] = sum(c["advs"]) / 2 * px
         hh[i] = c["size"] * 0.6 * px
+        plate = plate_dims(c)
+        if plate is not None:  # 道路番号は看板の大きさで重なりを調べる
+            hw[i] = plate[0] / 2 * px
+            hh[i] = (plate[1] / 2 + abs(plate[2])) * px
         mg[i] = c["margin"] * px
+        rp[i] = c.get("repeat", 0) * px
     # 箱の半径 (向きを問わない)。重なりうるのは中心どうしが (r_j + r_i + 余白_i) 未満のときだけ
     rad = [max(hw[i], hh[i]) for i in range(n)]
     rmax = max(rad)
@@ -995,14 +1135,20 @@ def place_labels(cands, fixed=()):
             if k_index(c["kmin"], False) <= si <= k_index(c["kmax"], True):
                 grid.setdefault((int(xs[i] // cell), int(ys[i] // cell)), []).append(i)
         for i in range(nf, n):
+            if k > cands[i].get("kcap", LABEL_SCALE_STEPS):  # 道路番号の都道府県道などは、拡大したときだけ
+                continue
             gx, gy = int(xs[i] // cell), int(ys[i] // cell)
-            r = int(math.ceil((rad[i] + rmax + mg[i]) * s / cell))
+            r = int(math.ceil((rad[i] + rmax + max(mg[i], rp[i])) * s / cell))
             hit = False
             for cx in range(gx - r, gx + r + 1):
                 for cy in range(gy - r, gy + r + 1):
                     for j in grid.get((cx, cy), ()):
                         dx = abs(xs[j] - xs[i])
                         dy = abs(ys[j] - ys[i])
+                        if rp[i] and cands[j]["cat"] == cands[i]["cat"] and cands[j]["name"] == cands[i]["name"] \
+                                and dx * dx + dy * dy < (rp[i] * s) ** 2:
+                            hit = True
+                            break
                         # 既に置いたラベルの箱 (余白なし) と、自分の箱を余白ぶん広げたもの
                         w = (hw[j] + hw[i] + mg[i]) * s
                         h = (hh[j] + hh[i] + mg[i]) * s
@@ -1137,11 +1283,19 @@ def build_glyph_labels(planned, z, tx, ty, used=None):
     count = 0
     for lab in planned:
         chars = [ch for ch in lab["name"] if not ch.isspace()]
-        if 12 * (len(out) + len(chars)) > LABEL_CONFIG["verts"]:
+        plate = plate_dims(lab)
+        if 12 * (len(out) + len(chars) + (plate is not None)) > LABEL_CONFIG["verts"]:
             continue
         x, y = lab["x"] - tx * EXTENT, lab["y"] - ty * EXTENT
         k = lab["size"] / float(LABEL_FONT_PX)
         side = LABEL_CELL * k * px
+        if plate is not None:
+            # 看板のレコード: 箱の一辺 = 看板の高さ、字 = PLATE_FLAG | 形 << 20 | (縦のずれ / 高さ * 128 + 128) << 10 | 幅 / 高さ * 128
+            pw, ph, py, shape = plate
+            ratio = int(min(max(round(pw / ph * 128), 1), 1023))
+            yq = int(min(max(round(py / ph * 128) + 128, 0), 255))
+            g = PLATE_FLAG | (shape << 20) | (yq << 10) | ratio
+            out.append((x, y, 0.0, 0.0, g, ph * px, lab["kmin"], lab["kmax"], lab.get("cat", 0)))
         pen = -sum(lab["advs"]) / 2
         for ch, adv in zip(lab["name"], lab["advs"]):
             if not ch.isspace():
