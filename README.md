@@ -49,7 +49,7 @@ v2 までのワールドのシェーダーは POI を地名と区別できない
 
 ```
 <R2 の公開 URL>/terrain/v1/floors/<地域>.json                                 床の地形の索引 (データの URL・寸法・最高点など)
-<R2 の公開 URL>/terrain/v1/data/<ハッシュ>.bin                                標高 (名前は中身のハッシュ)。小分け (索引の chunks、1 本 256 KiB 以下。iOS 向け) も同じ所
+<R2 の公開 URL>/terrain/v1/data/<ハッシュ>.bin                                標高 (名前は中身のハッシュ)。小分け (索引の chunks、1 本 256 KiB 以下。iOS 向け) も同じ所。gzip にしない (VRChat の String Loading が失敗するため)
 ```
 
 床 1 つに 1 本で、範囲は v4 の床の manifest の `levels[0]` (base のズームとタイルの範囲) と同じです。base タイル 1 枚を

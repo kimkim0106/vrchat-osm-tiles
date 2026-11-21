@@ -17,6 +17,12 @@ data/ に置く。iOS の String Loading は約 800 KB から結果を途中で�
 切れて届いたら小分けを順に取ってつなぐ。1 本は CHUNK_BYTES (256 KiB) 以下。索引に小分けが無い地域は、R2 の .bin を取って
 分けるだけで標高タイルは取り直さない (--rebuild に入れたときだけ焼き直す)。
 
+標高 (.bin) は gzip にしない (Content-Encoding なし、索引の httpEncoding = "identity")。VRChat の String Loading は
+受信バッファの大きさを Content-Length で決めるので、gzip (Content-Length = 圧縮後) だと展開した中身が入りきらず
+「capacity was less than the current size」で失敗する。iOS では毎回そうなった (2026-11-22 の利用者のログ。PC の実機では
+起きなかった)。索引に httpEncoding が無い地域 (前に gzip で上げたもの) は、R2 の .bin を取って同じ名前で gzip なしで
+上げ直す (中身は同じなので名前も同じ。ワールドに焼き込んだ URL はそのまま使える)。
+
 .bin の形式: 床の base タイル 1 枚 = SAMPLES x SAMPLES 点 (既定 64)。1 行 = 東西に baseW x SAMPLES 点、行は北から南へ
 baseH x SAMPLES 行。1 点 3 バイト (RGB24)。値は国土地理院の dem_png と同じ: x = R·2^16 + G·2^8 + B、x < 2^23 なら x × 0.01 m、
 それより大きければ (x − 2^24) × 0.01 m。データなし (海、タイルが無い所) は 0 m。点はそのマスの中心の標高で、取った標高タイルの
@@ -50,6 +56,7 @@ PREFIX = "terrain/v1"
 ATTRIBUTION = "国土地理院 標高タイル (DEM10B)"
 USER_AGENT = "vrchat-osm-tiles-terrain/1"
 CHUNK_BYTES = 256 * 1024   # 小分け 1 本の上限 (iOS の String Loading が切らない大きさ)
+HTTP_ENCODING = "identity" # 標高は gzip にしない (上の説明)
 
 
 def curl(url, out=None):
@@ -172,7 +179,7 @@ def write_chunks(data, width, height, datadir, public):
 
 
 def add_chunks(index, datadir, public):
-    """R2 にある索引に小分けを足す (.bin を取って分けるだけ)。"""
+    """R2 にある索引の .bin を取り直して、まとめた 1 本と小分けを手元に置く (gzip なしで上げ直すため)。"""
     tmp = os.path.join(datadir, "_whole.tmp")
     code, _ = curl(index["url"], tmp)
     with open(tmp, "rb") as f:
@@ -180,7 +187,10 @@ def add_chunks(index, datadir, public):
     os.remove(tmp)
     if code != "200" or hashlib.sha256(data).hexdigest() != index["sha256"]:
         sys.exit(f"{index['region']}: {index['url']} を取れなかったか中身が違う ({code}, {len(data)} バイト)")
+    with open(os.path.join(datadir, index["url"].rsplit("/", 1)[1]), "wb") as f:
+        f.write(data)
     index["chunkRows"], index["chunks"] = write_chunks(data, index["width"], index["height"], datadir, public)
+    index["httpEncoding"] = HTTP_ENCODING
     return index
 
 
@@ -201,14 +211,14 @@ def cmd_build(args):
     for name in wanted:
         have = None if name in rebuild else fetch_json(f"{public}/{PREFIX}/floors/{name}.json")
         if have is not None:
-            if have.get("chunks"):
+            if have.get("chunks") and have.get("httpEncoding") == HTTP_ENCODING:
                 print(f"{name}: R2 にあるので焼かない", flush=True)
                 continue
             index = add_chunks(have, datadir, public)
             with open(os.path.join(floordir, f"{name}.json"), "w", encoding="utf-8") as f:
                 json.dump(index, f, ensure_ascii=False, indent=1)
             made += 1
-            print(f"{name}: R2 の .bin を小分けにした ({len(index['chunks'])} 本、{index['chunkRows']} 行ずつ)", flush=True)
+            print(f"{name}: R2 の .bin を gzip なしで置き直す (小分け {len(index['chunks'])} 本、{index['chunkRows']} 行ずつ)", flush=True)
             continue
         manifest = fetch_json(f"{public}/v4/floors/{name}/manifest.json")
         if manifest is None:
@@ -242,6 +252,7 @@ def cmd_build(args):
             "attribution": ATTRIBUTION,
         }
         index["chunkRows"], index["chunks"] = write_chunks(data, index["width"], index["height"], datadir, public)
+        index["httpEncoding"] = HTTP_ENCODING
         with open(os.path.join(floordir, f"{name}.json"), "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=1)
         made += 1
@@ -255,18 +266,15 @@ def cmd_upload(args):
     bucket = os.environ["R2_BUCKET"]
     root = os.path.join(args.out, PREFIX)
     staged = os.path.join(args.out, "_staged")
-    have = r2_upload.list_keys(bucket, f"{PREFIX}/data/")
-    todo = []
-    for name in sorted(os.listdir(os.path.join(root, "data"))):
-        if not name.endswith(".bin"):
-            continue
-        key = f"{PREFIX}/data/{name}"
-        if key not in have:
-            todo.append((os.path.join(root, "data", name), os.path.join(staged, key)))
-    print(f"標高 {len(todo)} 本を上げる (R2 にあるもの {len(have)} 本)", flush=True)
-    if todo:
-        r2_upload.stage_files(todo)
-        r2_upload.put_tree(os.path.join(staged, PREFIX, "data"), bucket, f"{PREFIX}/data/", [".bin"])
+    # 標高は gzip にせず、手元にあるものは R2 にあっても上げ直す (前に gzip で上げたものを置き換えるため。
+    # 手元にあるのは、この実行で焼いたか置き直した地域の分だけ)
+    datadir = os.path.join(root, "data")
+    n = len([s for s in os.listdir(datadir) if s.endswith(".bin")])
+    print(f"標高 {n} 本を gzip なしで上げる", flush=True)
+    if n:
+        r2_upload.aws("s3", "cp", datadir, f"s3://{bucket}/{PREFIX}/data/", "--recursive", "--only-show-errors",
+                      "--exclude", "*", "--include", "*.bin",
+                      "--content-type", r2_upload.TYPES[".bin"], "--cache-control", r2_upload.CACHE)
     # 索引はデータを上げた後で (索引が指す .bin が無い時間を作らない)
     floors = os.path.join(root, "floors")
     names = sorted(os.listdir(floors))
