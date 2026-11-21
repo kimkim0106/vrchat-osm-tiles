@@ -88,6 +88,9 @@ jobs:
             curl -fsS -o /dev/null -w "%{http_code} %{url_effective}\n" "${R2_PUBLIC_URL%/}/terrain/v1/floors/$name"
             curl -fsS -o /dev/null -w "%{http_code} %{size_download} %{url_effective}\n" "$url"
             for c in $(python -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])).get("chunks", [])))' "$f"); do
+              # gzip だと VRChat (iOS) の String Loading が「capacity was less than the current size」で失敗する
+              enc=$(curl -fsS -D - -o /dev/null -H 'Accept-Encoding: gzip, br' "$c" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-encoding"{print $2}')
+              if [ -n "$enc" ]; then echo "::error::$c が $enc で返る"; exit 1; fi
               curl -fsS -o /dev/null -w "%{http_code} %{size_download} %{url_effective}\n" "$c"
             done
           done
