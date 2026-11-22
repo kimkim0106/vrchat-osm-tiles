@@ -176,7 +176,6 @@ _ROAD_EXPRESSWAY_REF = re.compile(r"^[A-Z]{0,2}[0-9]{0,3}[A-Z]?$")
 _ROAD_NUMBER_REF = re.compile(r"^[0-9]{1,3}$")
 _URBAN_EXPRESSWAYS = ("首都高速", "阪神高速", "名古屋高速", "福岡高速", "北九州高速", "広島高速", "京都高速")
 _ROAD_NAME_SUFFIX = ("道路", "自動車道", "線", "バイパス", "道")  # 路線の名前らしい終わり (出入口のランプの「錦糸町」「和光IC」などと分ける)
-_URBAN_ROUTE_REF = re.compile(r"^([0-9]{1,2}|[A-Z][0-9]?)$")  # 都市高速の路線の番号 (3, 31, C1, K7, B)。「701」「C42」は出入口の番号
 POI_MAX_CHARS = 16  # これより長い名前の POI は載せない
 _POI_SKIP_SUFFIX = ("交番", "駐在所")  # 数が多く、観光の役に立たない
 _POI_SIGHT = {"attraction", "museum", "zoo", "aquarium", "theme_park", "castle", "monument", "viewpoint"}
@@ -212,13 +211,15 @@ def poi_category(props):
 def road_category(props):
     """transportation_name レイヤーの線の道路番号の (種類, 番号, 看板の形)。載せないものは None。
     路線網 (route_1_network) があればそれで決め、無ければ class で決める (日本の OSM では trunk = 国道、primary = 主要地方道、
-    secondary = 一般の都道府県道)。番号が複数 ("4;5") なら最初のもの。"""
+    secondary = 一般の都道府県道)。番号が複数 ("4;5") なら最初のもの (高速は E で始まる番号を優先する。淡路 SA のランプの
+    "28;E28" が「28」の都市高速の看板になっていた)。"""
     ref = props.get("route_1_ref") or props.get("ref")
     if not isinstance(ref, str):
         return None
-    ref = ref.split(";")[0].strip()
-    if not ref:
+    refs = [r.strip() for r in ref.split(";") if r.strip()]
+    if not refs:
         return None
+    ref = refs[0]
     net = props.get("route_1_network") or ""
     cls = props.get("class")
     if net == "JP:national":
@@ -233,6 +234,8 @@ def road_category(props):
         cat = 11
     else:
         return None
+    if cat == 9:
+        ref = next((r for r in refs if r.startswith("E")), ref)
     if cls not in ("motorway", "trunk", "primary", "secondary"):
         return None  # 区道の番号 (tertiary の "L98" など) や、建設中の道路
     if not (_ROAD_EXPRESSWAY_REF if cat == 9 else _ROAD_NUMBER_REF).match(ref):
@@ -248,12 +251,10 @@ def road_category(props):
             shape = 3
         elif name and name.endswith(_ROAD_NAME_SUFFIX):
             pass  # 路線網の無い有料道路など (浜手バイパス (国道 2 号) など)。長方形のまま
-        elif not name and _URBAN_ROUTE_REF.match(ref):
-            # 名前の無い出入口のランプ (motorway_link。OpenMapTiles では class が motorway のまま) は路線の番号を持つことが
-            # 多い (阪神高速 3 号・31 号)。都市高速とみなす (以前は長方形になっていた)
-            shape = 3
         else:
-            # 「錦糸町」「和光IC」「霞が関出口」などの名前の出入口のランプ。番号は出口の番号 (首都高の 701 など) のことが多いので出さない
+            # 出入口のランプ (motorway_link。OpenMapTiles では class が motorway のまま) は出さない。「錦糸町」「和光IC」
+            # 「霞が関出口」などの名前のものは番号が出口の番号 (首都高の 701 など) のことが多く、名前の無いもの (阪神高速 3 号・
+            # 31 号、淡路 SA) は都市高速か NEXCO かを決められない (本線に同じ番号の看板がある)
             return None
     return cat, ref, shape
 
