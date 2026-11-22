@@ -1339,10 +1339,12 @@ def place_labels(cands, fixed=()):
         if plate is not None:  # 道路番号は看板の大きさで重なりを調べる
             hw[i] = plate[0] / 2 * px
             hh[i] = (plate[1] / 2 + abs(plate[2])) * px
-        if c.get("rot"):  # 線の向きに回す名前は、回した箱を囲む四角で調べる
+        if c.get("rot"):
+            # 線の向きに回す名前 (2D) は回した箱を囲む四角、3D (「線の名前」= 3D) では回さない元の箱で描くので、両方を囲む大きさで調べる
+            # (回した箱だけだと、斜めの線の名前の横幅を狭く見積もり、3D で重なる名前が同時に出た。Codex のレビュー (PR #87) で指摘)
             a = (c["rot"] - 1) * math.pi / LINE_ROT_STEPS
             ca, sa = abs(math.cos(a)), abs(math.sin(a))
-            hw[i], hh[i] = ca * hw[i] + sa * hh[i], sa * hw[i] + ca * hh[i]
+            hw[i], hh[i] = max(hw[i], ca * hw[i] + sa * hh[i]), max(hh[i], sa * hw[i] + ca * hh[i])
         mg[i] = c["margin"] * px
         rp[i] = c.get("repeat", 0) * px
     # 箱の半径 (向きを問わない)。重なりうるのは中心どうしが (r_j + r_i + 余白_i) 未満のときだけ
