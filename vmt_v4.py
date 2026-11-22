@@ -233,8 +233,9 @@ def candidates(region, mbtiles, tiles):
 # ---------------------------------------------------------------- 2. 配置
 
 LABEL_FIELDS = ("name", "x", "y", "size", "margin", "cat", "pri", "rank", "kmin", "kmax")
-# あるときだけ渡す欄 (道路番号。Issue #83 (ワールド側)): plate = 看板の形 (種類の既定と違うとき)、repeat / kcap = 置き方
-LABEL_OPTIONAL_FIELDS = ("plate", "repeat", "kcap")
+# あるときだけ渡す欄 (道路番号。Issue #83 (ワールド側)): plate = 看板の形 (種類の既定と違うとき)、repeat / kcap = 置き方、
+# rot = 線の名前 (道路名・路線名。ワールド側 Issue #86) の向きの番号 + 1
+LABEL_OPTIONAL_FIELDS = ("plate", "repeat", "kcap", "rot")
 
 
 def place_all(regions, inventory, cand_files, frozen_files, tools):

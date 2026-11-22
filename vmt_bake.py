@@ -174,6 +174,11 @@ ROAD_PLATES = {
     3: {"pad": 0.7, "minw": 1.5, "h": 1.5, "yoff": 0.14},
 }
 ROAD_DEFAULT_PLATE = {9: 0, 10: 1, 11: 2, 12: 0}  # 種類ごとの看板の形 (高速は路線網で 0 と 3 を分ける。road_category)
+# 線の名前 (道路名・路線名) の向き。字レコードの T2 のビット 18..21 に 向きの番号 + 1 を入れる (0 = 回さない。ほかのラベル)。
+# 向きは 0..180° を LINE_ROT_STEPS 段 (12° 刻み) にしたもの。文字コードは U+3FFFF まで (ビット 0..17) なので重ならない。
+# シェーダー (VmtCore.cginc の VmtResolveGlyphLabel) が 2D のときだけ、見る人に逆さまにならない向きで回す
+LINE_ROT_SHIFT = 18
+LINE_ROT_STEPS = 15
 PLATE_FLAG = 0x400000  # 字レコードの T2 のこのビットが立っていれば看板 (文字コードは 0x10FFFF まで、0x800000 は古いタイルのアトラスの番号)
 
 
@@ -317,7 +322,59 @@ def line_label_name(props, lang):
     name = clean_label(name)
     if not name or len(name) > (NAME_MAX_CHARS * 2 if lang == "en" else NAME_MAX_CHARS):
         return None
+    if any(ord(ch) > 0x3FFFF for ch in name):  # 字レコードのビット 18.. は向きに使う
+        return None
     return name
+
+
+def _line_chord(parts, span, samples=9):
+    """線 (部分ごとの点の列) のいちばん長い部分の上で、長さ span の弦がいちばん線に沿う (弦から線の点までの距離の最大が小さい)
+    所を選び、(弦の真ん中の x, y, 向きの番号 0..LINE_ROT_STEPS-1) を返す。向きは弦の向き (0..180°。y は下向き)。
+    部分が span より短ければ部分の両端を弦にする。同じくらい沿うなら部分の真ん中に近い所。"""
+    best = None
+    for pts in parts:
+        segs = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+        total = sum(segs)
+        if total > 0 and (best is None or total > best[2]):
+            best = (pts, segs, total)
+    if best is None:
+        return None
+    pts, segs, total = best
+    cum = [0.0]
+    for d in segs:
+        cum.append(cum[-1] + d)
+
+    def at(t):
+        t = min(max(t, 0.0), total)
+        for i, d in enumerate(segs):
+            if t <= cum[i + 1] and d > 0:
+                u = (t - cum[i]) / d
+                return pts[i][0] + (pts[i + 1][0] - pts[i][0]) * u, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * u
+        return pts[-1]
+
+    half = min(span, total) / 2.0
+    lo, hi = half, total - half
+    centers = [total / 2.0] if hi <= lo else [lo + (hi - lo) * k / (samples - 1) for k in range(samples)]
+    pick = None
+    for c in centers:
+        a, b = at(c - half), at(c + half)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n = math.hypot(dx, dy)
+        if n <= 0:
+            continue
+        dev = 0.0
+        for i in range(len(pts)):
+            if c - half < cum[i] < c + half:
+                dev = max(dev, abs((pts[i][0] - a[0]) * dy - (pts[i][1] - a[1]) * dx) / n)
+        key = (round(dev, 1), abs(c - total / 2.0))
+        if pick is None or key < pick[0]:
+            pick = (key, a, b)
+    if pick is None:
+        return None
+    _, a, b = pick
+    ang = math.atan2(b[1] - a[1], b[0] - a[0]) % math.pi
+    q = int(round(ang / (math.pi / LINE_ROT_STEPS))) % LINE_ROT_STEPS
+    return (a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, q
 
 
 def _line_midpoint(parts):
@@ -1045,14 +1102,17 @@ def line_name_candidate(feat, cat, scale, z, tx, ty, cands):
     name = line_label_name(feat["props"], LABEL_CONFIG["lang"])
     if name is None:
         return
-    mid = _line_midpoint(feat["geom"])
-    if mid is None:
+    # 名前の長さ (倍率 1 のとき、レイヤーの座標の単位)。この長さの弦がいちばん線に沿う所に、弦の向きで置く
+    width = sum(glyph_advance(ch) for ch in name) * pc["size"] / float(LABEL_FONT_PX) * (EXTENT / 512.0) / scale
+    placed = _line_chord(feat["geom"], width)
+    if placed is None:
         return
-    x, y = mid[0] * scale, mid[1] * scale
+    x, y = placed[0] * scale, placed[1] * scale
     if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
         return
     cands.append({"pri": pc["pri"], "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                  "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"], "repeat": pc["repeat"]})
+                  "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"], "repeat": pc["repeat"],
+                  "rot": placed[2] + 1})
 
 
 def extra_candidates(decoded, z, tx, ty, cands):
@@ -1279,6 +1339,10 @@ def place_labels(cands, fixed=()):
         if plate is not None:  # 道路番号は看板の大きさで重なりを調べる
             hw[i] = plate[0] / 2 * px
             hh[i] = (plate[1] / 2 + abs(plate[2])) * px
+        if c.get("rot"):  # 線の向きに回す名前は、回した箱を囲む四角で調べる
+            a = (c["rot"] - 1) * math.pi / LINE_ROT_STEPS
+            ca, sa = abs(math.cos(a)), abs(math.sin(a))
+            hw[i], hh[i] = ca * hw[i] + sa * hh[i], sa * hw[i] + ca * hh[i]
         mg[i] = c["margin"] * px
         rp[i] = c.get("repeat", 0) * px
     # 箱の半径 (向きを問わない)。重なりうるのは中心どうしが (r_j + r_i + 余白_i) 未満のときだけ
@@ -1466,6 +1530,8 @@ def build_glyph_labels(planned, z, tx, ty, used=None):
         for ch, adv in zip(lab["name"], lab["advs"]):
             if not ch.isspace():
                 g = ord(ch)  # 文字コード (ワールドの表でアトラスのマスを引く)
+                if lab.get("rot"):
+                    g |= int(lab["rot"]) << LINE_ROT_SHIFT  # 線の向き (向きの番号 + 1)
                 if used is not None:
                     used.add(ch)
                 cx = (pen + glyph_ink_center(ch) * k) * px
