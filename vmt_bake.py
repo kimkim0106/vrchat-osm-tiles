@@ -250,7 +250,10 @@ def road_category(props):
         elif any(name.startswith(n) for n in _URBAN_EXPRESSWAYS):
             shape = 3
         elif name and name.endswith(_ROAD_NAME_SUFFIX):
-            pass  # 路線網の無い有料道路など (浜手バイパス (国道 2 号) など)。長方形のまま
+            # 路線網の無い、高速道路の扱いの道路。番号が数字だけなら国道のバイパスなど (浜手バイパス = 国道 2 号、中山道 = 17 号)
+            # とみなしておにぎりにする (利用者の希望)。それ以外は長方形のまま
+            if _ROAD_NUMBER_REF.match(ref):
+                return 10, ref, ROAD_DEFAULT_PLATE[10]
         else:
             # 出入口のランプ (motorway_link。OpenMapTiles では class が motorway のまま) は出さない。「錦糸町」「和光IC」
             # 「霞が関出口」などの名前のものは番号が出口の番号 (首都高の 701 など) のことが多く、名前の無いもの (阪神高速 3 号・
