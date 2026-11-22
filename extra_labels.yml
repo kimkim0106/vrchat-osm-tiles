@@ -1,0 +1,48 @@
+# extra_labels.yml - OpenMapTiles に無いラベルの元を、planetiler の独自スキーマ (generate-custom) で取り出す。
+# build_site.py が OpenMapTiles の MBTiles を作った後で、同じ元データ・同じ範囲で z14 だけ作り、
+# z14 のタイルにレイヤーとしてつなぎ足す (merge_extra_layers)。ベイカー (vmt_bake.py の extra_candidates) が読む。
+#   sapa     高速の SA・PA (highway=services / rest_area) の点 (面は真ん中の点)。名前で SA・PA を選ぶのはベイカー
+#   railname 線路 (旅客線の種類) の線と名前。ワールドの地図に鉄道の路線名を出す (ワールド側 Issue #86)
+# 元データの場所は --osm_path で渡す (下の url は使わない)
+schema_name: VMT extra labels
+schema_description: SA・PA の点と鉄道の路線名の線
+attribution: <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>
+sources:
+  osm:
+    type: osm
+    url: geofabrik:japan
+layers:
+- id: sapa
+  features:
+  - source: osm
+    geometry: polygon_centroid
+    min_zoom: 14
+    include_when:
+      highway: [services, rest_area]
+    attributes: &sapa_attrs
+    - key: highway
+    - key: name
+    - key: name:ja
+    - key: name:en
+  - source: osm
+    geometry: point
+    min_zoom: 14
+    include_when:
+      highway: [services, rest_area]
+    attributes: *sapa_attrs
+- id: railname
+  features:
+  - source: osm
+    geometry: line
+    min_zoom: 14
+    include_when:
+      railway: [rail, subway, light_rail, monorail, narrow_gauge, tram]
+    exclude_when:
+      service: [yard, siding, spur, crossover]
+    attributes:
+    - key: railway
+    - key: name
+    - key: name:ja
+    - key: name:en
+    - key: name:ja-Latn
+    - key: usage

@@ -224,7 +224,63 @@ def _planetiler(region, tools, work, java_mem, out):
          "--download", f"--area={region['area']}", f"--bounds={region['bbox']}", f"--maxzoom={maxzoom}", *osm,
          f"--download_dir={os.path.join(work, 'sources')}", f"--tmpdir={os.path.join(work, 'tmp')}",
          f"--output={out}", "--force"])
+    if maxzoom >= 14 and not region.get("wide"):
+        add_extra_layers(region, tools, work, java_mem, osm, out)
     return out
+
+
+EXTRA_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extra_labels.yml")
+
+
+def add_extra_layers(region, tools, work, java_mem, osm, out):
+    """OpenMapTiles に無いラベルの元 (SA・PA の点、鉄道の路線名の線。extra_labels.yml) を同じ元データ・範囲の z14 で作り、
+    out の z14 のタイルにレイヤーとしてつなぎ足す。都市の床 (z14 まで焼く地域) だけ。"""
+    extra = out[:-len(".mbtiles")] + ".extra.mbtiles"
+    run(["java", f"-Xmx{java_mem}", "-jar", os.path.join(tools, "planetiler.jar"), "generate-custom",
+         f"--schema={EXTRA_SCHEMA}", "--download", f"--area={region['area']}", f"--bounds={region['bbox']}",
+         "--minzoom=14", "--maxzoom=14", *osm,
+         f"--download_dir={os.path.join(work, 'sources')}", f"--tmpdir={os.path.join(work, 'tmp')}",
+         f"--output={extra}", "--force"])
+    n = merge_extra_layers(out, extra)
+    os.remove(extra)
+    print(f"{region['name']}: SA・PA と路線名のレイヤーを {n} タイルにつなぎ足した", flush=True)
+
+
+def merge_extra_layers(main_path, extra_path):
+    """extra_path の MBTiles のタイルを main_path の同じタイルにつなぎ足す (MVT はレイヤーの並びなので、展開したバイト列を
+    つなぐだけでよい)。main に無いタイルは足す。planetiler の重複を省く形 (tiles_shallow + tiles_data。同じ中身のタイルは
+    tiles_data を共有する) でも、ふつうの tiles 表でも書ける。つなぎ足したタイルの数を返す。"""
+    import gzip
+    import sqlite3
+    src = sqlite3.connect(extra_path)
+    dst = sqlite3.connect(main_path)
+    compact = dst.execute("select 1 from sqlite_master where name='tiles_shallow'").fetchone() is not None
+    n = 0
+    for z, x, y, data in src.execute("select zoom_level, tile_column, tile_row, tile_data from tiles"):
+        add = bytes(data)
+        if add[:2] == b"\x1f\x8b":
+            add = gzip.decompress(add)
+        row = dst.execute("select tile_data from tiles where zoom_level=? and tile_column=? and tile_row=?",
+                          (z, x, y)).fetchone()
+        base = b""
+        if row is not None:
+            base = bytes(row[0])
+            if base[:2] == b"\x1f\x8b":
+                base = gzip.decompress(base)
+        merged = gzip.compress(base + add)
+        if compact:
+            # 共有している tiles_data は書き換えず、このタイルだけ新しい行を指す
+            cur = dst.execute("insert into tiles_data (tile_data) values (?)", (merged,))
+            dst.execute("insert or replace into tiles_shallow (zoom_level, tile_column, tile_row, tile_data_id) "
+                        "values (?, ?, ?, ?)", (z, x, y, cur.lastrowid))
+        else:
+            dst.execute("insert or replace into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?)",
+                        (z, x, y, merged))
+        n += 1
+    dst.commit()
+    src.close()
+    dst.close()
+    return n
 
 
 def region_entry(region, manifest):

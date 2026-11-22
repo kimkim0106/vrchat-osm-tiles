@@ -146,8 +146,22 @@ POI_CATEGORIES = {
     10: {"key": "road_national", "title": "国道", "size": 14, "pri": 2.8, "margin": 10, "dedup": 300.0, "repeat": 220},
     11: {"key": "road_prefectural", "title": "都道府県道", "size": 13, "pri": 4.9, "margin": 10, "dedup": 300.0,
          "repeat": 220, "minz": 14, "kcap": 4},
+    # 高速の IC・JCT・出入口 (OSM の highway=motorway_junction。OpenMapTiles では transportation_name の点) と SA・PA
+    # (highway=services / rest_area。OpenMapTiles に無いので、配信側が planetiler の独自スキーマで作る sapa レイヤー)の名前。
+    # 高速の看板と同じ緑の長方形の札に白い字で出す (首都高の「三軒茶屋」のように IC も出口も付かない名前が多く、
+    # 地名と見分けるため)。上下線・入口と出口の点が同じ名前で並ぶので、近くの同名は 1 つにする
+    12: {"key": "expressway_facility", "title": "IC・JCT・SA・PA", "size": 11, "pri": 3.6, "margin": 8, "dedup": 1500.0,
+         "minz": 14},
+    # 道路名 (Issue #86。transportation_name の線の名前。trunk〜secondary) と鉄道の路線名 (配信側の独自スキーマの
+    # railname レイヤー = OSM の線路の way の name。貨物線も出す)。どちらも線の真ん中にまっすぐ置き、同じ名前は repeat 以内に置かない
+    13: {"key": "road_name", "title": "道路名", "size": 10, "pri": 4.4, "margin": 6, "dedup": 300.0, "repeat": 300,
+         "minz": 14},
+    14: {"key": "rail_name", "title": "路線名", "size": 10, "pri": 3.8, "margin": 6, "dedup": 300.0, "repeat": 300,
+         "minz": 14},
 }
 ROAD_CATEGORIES = (9, 10, 11)
+JUNCTION_MAX_EM = 9.0  # IC・JCT の名前の札の幅の上限 (字の幅の合計、em。札の 幅 / 高さ は 8 倍までしか焼けない)
+JUNCTION_MAX_CHARS = 12  # 札のレコードを探す範囲 (シェーダーの VmtPlateBottom) に収まる字数
 # 道路番号の看板 (Issue #83)。番号の前に看板のレコードを 1 つ置き、シェーダーが種類の色の図形を描いて、その上に番号を白で描く。
 # 寸法は字の大きさ (em = size px) を単位にし、番号のインクの中心が原点、+y が下。形ごとに:
 #   0 = 角の丸い長方形 (NEXCO などの高速の E 番号)、1 = おにぎり (国道。角の丸い逆三角で辺がふくらむ)、
@@ -159,7 +173,7 @@ ROAD_PLATES = {
     2: {"pad": 1.0, "minw": 1.9, "h": 1.3, "yoff": 0.0},
     3: {"pad": 0.7, "minw": 1.5, "h": 1.5, "yoff": 0.14},
 }
-ROAD_DEFAULT_PLATE = {9: 0, 10: 1, 11: 2}  # 種類ごとの看板の形 (高速は路線網で 0 と 3 を分ける。road_category)
+ROAD_DEFAULT_PLATE = {9: 0, 10: 1, 11: 2, 12: 0}  # 種類ごとの看板の形 (高速は路線網で 0 と 3 を分ける。road_category)
 PLATE_FLAG = 0x400000  # 字レコードの T2 のこのビットが立っていれば看板 (文字コードは 0x10FFFF まで、0x800000 は古いタイルのアトラスの番号)
 
 
@@ -260,6 +274,50 @@ def road_category(props):
             # 31 号、淡路 SA) は都市高速か NEXCO かを決められない (本線に同じ番号の看板がある)
             return None
     return cat, ref, shape
+
+
+def junction_name(props, lang):
+    """transportation_name の分岐点 (subclass = junction) の札に出す名前。載せないものは None。
+    「横浜港北JCT/横浜港北出口」のように並べたものは最初の名前だけ。「ジャンクション」は「JCT」に縮める。
+    IC や JCT の付かない名前 (首都高の「三軒茶屋」など) はそのまま (付け足すと首都高の呼び方と違う)。"""
+    if lang == "en":
+        name = props.get("name:en") or props.get("name:ja-Latn") or props.get("name")
+    else:
+        name = (props.get("name:" + lang) if lang else None) or props.get("name")
+    if not isinstance(name, str):
+        return None
+    name = re.split(r"[/／;]", name)[0]
+    # 全角の英数字 (「代々木ＰＡ」) は半角にする
+    name = re.sub("[Ａ-Ｚａ-ｚ０-９]+", lambda m: unicodedata.normalize("NFKC", m.group()), name)
+    name = name.replace("ジャンクション", "JCT").replace("Junction", "JCT")
+    # 首都高などの「一ツ橋出口」「芝公園入口」は、同じ所の「一ツ橋」と重なるので「出口・入口・出入口」を落とす
+    # (緑の札で高速の出入口だと分かる)。近くの同名は merge_labels が 1 つにする
+    name = re.sub(r"(出入口|出口|入口)$", "", name.strip())
+    name = re.sub(r"(?i)\s+(exit|entrance)$", "", name)
+    name = clean_label(name)
+    return name or None
+
+
+_ROAD_NAME_CLASSES = ("trunk", "primary", "secondary")
+NAME_MAX_CHARS = 12  # 道路名・路線名の字数の上限 (英語は倍)
+
+
+def line_label_name(props, lang):
+    """道路名・路線名の名前 (「;」で並べたものは最初、英字の括弧書きは落とす)。載せないものは None。"""
+    if lang == "en":
+        name = props.get("name:en") or props.get("name:ja-Latn") or props.get("name")
+    else:
+        name = (props.get("name:" + lang) if lang else None) or props.get("name")
+    if not isinstance(name, str):
+        return None
+    name = name.split(";")[0]
+    if lang != "en":
+        name = re.sub(r"\s*[(（][\x20-\x7e]*[)）]\s*", "", name)  # 「京王電鉄京王線 (Keio Railway Keio Line)」
+    name = re.sub(r"^[(（](.*)[)）]$", r"\1", name.strip())  # 「(高樹町)」
+    name = clean_label(name)
+    if not name or len(name) > (NAME_MAX_CHARS * 2 if lang == "en" else NAME_MAX_CHARS):
+        return None
+    return name
 
 
 def _line_midpoint(parts):
@@ -881,9 +939,10 @@ def label_candidates(db, z, tiles):
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=layers + (("transportation_name",) if roads else ()))
+        decoded = decode_mvt(data, only=layers + (("transportation_name", "sapa", "railname") if roads else ()))
         if roads:
             road_candidates(decoded.get("transportation_name"), z, tx, ty, cands)
+            extra_candidates(decoded, z, tx, ty, cands)
         for lname in layers:
             layer = decoded.get(lname)
             if not layer:
@@ -933,13 +992,28 @@ def label_candidates(db, z, tiles):
 
 
 def road_candidates(layer, z, tx, ty, cands):
-    """道路番号の候補 (POI_CATEGORIES の 9..11) を cands に足す。同じ番号の近いものは merge_labels が 1 つにする。"""
+    """道路番号の候補 (POI_CATEGORIES の 9..11) と IC・JCT の名前の候補 (12) を cands に足す。
+    同じ番号・名前の近いものは merge_labels が 1 つにする。"""
     if not layer:
         return
     scale = EXTENT / float(layer["extent"])
+    jc = POI_CATEGORIES[12]
     for feat in layer["features"]:
+        if feat["type"] == 1 and feat["geom"] and feat["props"].get("subclass") == "junction" and z >= jc["minz"]:
+            name = junction_name(feat["props"], LABEL_CONFIG["lang"])
+            if name is None or len([ch for ch in name if not ch.isspace()]) > JUNCTION_MAX_CHARS \
+                    or sum(glyph_advance(ch) for ch in name) / float(LABEL_FONT_PX) > JUNCTION_MAX_EM:
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            cands.append({"pri": jc["pri"], "rank": 99, "name": name, "cat": 12, "x": tx * EXTENT + x,
+                          "y": ty * EXTENT + y, "size": jc["size"], "margin": jc["margin"] * LABEL_CONFIG["spacing"]})
+            continue
         if feat["type"] != 2 or not feat["geom"]:
             continue
+        if feat["props"].get("class") in _ROAD_NAME_CLASSES and feat["props"].get("subclass") != "junction":
+            line_name_candidate(feat, 13, scale, z, tx, ty, cands)
         rc = road_category(feat["props"])
         if rc is None:
             continue
@@ -961,6 +1035,82 @@ def road_candidates(layer, z, tx, ty, cands):
         if shape != ROAD_DEFAULT_PLATE[cat]:
             c["plate"] = shape
         cands.append(c)
+
+
+def line_name_candidate(feat, cat, scale, z, tx, ty, cands):
+    """線の名前 (道路名 13・路線名 14) の候補を線の真ん中に足す。"""
+    pc = POI_CATEGORIES[cat]
+    if z < pc.get("minz", 0):
+        return
+    name = line_label_name(feat["props"], LABEL_CONFIG["lang"])
+    if name is None:
+        return
+    mid = _line_midpoint(feat["geom"])
+    if mid is None:
+        return
+    x, y = mid[0] * scale, mid[1] * scale
+    if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
+        return
+    cands.append({"pri": pc["pri"], "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                  "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"], "repeat": pc["repeat"]})
+
+
+def extra_candidates(decoded, z, tx, ty, cands):
+    """配信側が planetiler の独自スキーマで足したレイヤー (sapa = SA・PA の点、railname = 線路の線) の候補。
+    無いタイル (古い MBTiles、z14 より下) では何もしない。"""
+    layer = decoded.get("sapa")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        jc = POI_CATEGORIES[12]
+        for feat in layer["features"]:
+            if feat["type"] != 1 or not feat["geom"] or z < jc["minz"]:
+                continue
+            name = sapa_name(feat["props"], LABEL_CONFIG["lang"])
+            if name is None:
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            cands.append({"pri": jc["pri"], "rank": 99, "name": name, "cat": 12, "x": tx * EXTENT + x,
+                          "y": ty * EXTENT + y, "size": jc["size"], "margin": jc["margin"] * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("railname")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        for feat in layer["features"]:
+            if feat["type"] != 2 or not feat["geom"]:
+                continue
+            if feat["props"].get("usage") in ("military", "industrial"):
+                continue  # 工場や基地の中の線路 (貨物線は出す。利用者の判断)
+            line_name_candidate(feat, 14, scale, z, tx, ty, cands)
+
+
+_SAPA_SUFFIX = re.compile(r"(SA|PA)$")
+
+
+def sapa_name(props, lang):
+    """SA・PA の札に出す名前。名前が SA・PA で終わるもの (サービスエリア・パーキングエリアは縮める) だけ。
+    「(上り)」「(内回り)」などの向きは落とす (上下線の点を merge_labels が 1 つにする)。道の駅や公園の休憩所は載せない。"""
+    ja = props.get("name:ja") or props.get("name")
+    if not isinstance(ja, str):
+        return None
+    ja = ja.split(";")[0]
+    ja = re.sub("[Ａ-Ｚａ-ｚ０-９（）]+", lambda m: unicodedata.normalize("NFKC", m.group()), ja)
+    ja = re.sub(r"\s*\([^)]*\)\s*$", "", ja).strip()
+    ja = ja.replace("サービスエリア", "SA").replace("パーキングエリア", "PA")
+    if not _SAPA_SUFFIX.search(ja):
+        return None
+    if lang == "en":
+        name = props.get("name:en")
+        if not isinstance(name, str):
+            return junction_name({"name": ja}, None)
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", name.split(";")[0]).strip()
+    else:
+        name = ja
+    name = clean_label(name)
+    if not name or len([ch for ch in name if not ch.isspace()]) > JUNCTION_MAX_CHARS \
+            or sum(glyph_advance(ch) for ch in name) / float(LABEL_FONT_PX) > JUNCTION_MAX_EM:
+        return None
+    return name
 
 
 def _unit_y(z, y):
