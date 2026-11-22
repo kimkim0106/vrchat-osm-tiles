@@ -175,6 +175,8 @@ def plate_dims(lab):
 _ROAD_EXPRESSWAY_REF = re.compile(r"^[A-Z]{0,2}[0-9]{0,3}[A-Z]?$")
 _ROAD_NUMBER_REF = re.compile(r"^[0-9]{1,3}$")
 _URBAN_EXPRESSWAYS = ("首都高速", "阪神高速", "名古屋高速", "福岡高速", "北九州高速", "広島高速", "京都高速")
+_ROAD_NAME_SUFFIX = ("道路", "自動車道", "線", "バイパス", "道")  # 路線の名前らしい終わり (出入口のランプの「錦糸町」「和光IC」などと分ける)
+_URBAN_ROUTE_REF = re.compile(r"^([0-9]{1,2}|[A-Z][0-9]?)$")  # 都市高速の路線の番号 (3, 31, C1, K7, B)。「701」「C42」は出入口の番号
 POI_MAX_CHARS = 16  # これより長い名前の POI は載せない
 _POI_SKIP_SUFFIX = ("交番", "駐在所")  # 数が多く、観光の役に立たない
 _POI_SIGHT = {"attraction", "museum", "zoo", "aquarium", "theme_park", "castle", "monument", "viewpoint"}
@@ -236,13 +238,23 @@ def road_category(props):
     if not (_ROAD_EXPRESSWAY_REF if cat == 9 else _ROAD_NUMBER_REF).match(ref):
         return None
     shape = ROAD_DEFAULT_PLATE[cat]
-    if cat == 9:
+    if cat == 9 and not ref.startswith("E"):
         # 都市高速 (首都高・阪神高速・名古屋高速など) は下が丸い看板、NEXCO などの E 番号は長方形
         name = props.get("name") or ""
-        urban = (net and not net.startswith("JP:E") and "高速" in net) or \
-            (not net and any(name.startswith(n) for n in _URBAN_EXPRESSWAYS))
-        if urban and not ref.startswith("E"):
+        if net:
+            if not net.startswith("JP:E") and "高速" in net:
+                shape = 3
+        elif any(name.startswith(n) for n in _URBAN_EXPRESSWAYS):
             shape = 3
+        elif name and name.endswith(_ROAD_NAME_SUFFIX):
+            pass  # 路線網の無い有料道路など (浜手バイパス (国道 2 号) など)。長方形のまま
+        elif not name and _URBAN_ROUTE_REF.match(ref):
+            # 名前の無い出入口のランプ (motorway_link。OpenMapTiles では class が motorway のまま) は路線の番号を持つことが
+            # 多い (阪神高速 3 号・31 号)。都市高速とみなす (以前は長方形になっていた)
+            shape = 3
+        else:
+            # 「錦糸町」「和光IC」「霞が関出口」などの名前の出入口のランプ。番号は出口の番号 (首都高の 701 など) のことが多いので出さない
+            return None
     return cat, ref, shape
 
 
