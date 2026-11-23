@@ -162,7 +162,26 @@ POI_CATEGORIES = {
     # 幼稚園・保育園は数が多い (東京で学校より多い) ので、公共施設の後・宿泊と飲食の前に置く (pri_kindergarten。
     # 押し出すのが飲食店になるように)
     15: {"key": "school", "title": "学校", "size": 9, "pri": 4.7, "pri_kindergarten": 5.0, "margin": 4, "dedup": 150.0},
+    # 山・川・湖 (2026-11-23。タブレットでは 1 つのチェックでまとめて出し入れする)。
+    # 山頂 = mountain_peak レイヤーの peak / volcano で標高のあるもの。名前の後に標高を付ける (「枡形山 84m」)。高い山から置く
+    16: {"key": "peak", "title": "山頂", "size": 10, "pri": 3.2, "margin": 6, "dedup": 1000.0},
+    # 水の名前 = water_name レイヤーの点 (海・湾・海峡は pri、湖・池・濠・運河は pri_lake。公園の中の小さな池が多いので、幼稚園と同じ後ろの方)
+    17: {"key": "water", "title": "海・湖", "size": 10, "pri": 2.0, "pri_lake": 5.0, "size_sea": 13, "margin": 6,
+         "dedup": 1500.0},
+    # 川の名前 = waterway レイヤーの線の名前。道路名・路線名と同じく線に沿わせる。z13 (全体の地図) は class river だけ
+    18: {"key": "river", "title": "川", "size": 10, "pri": 4.1, "margin": 6, "dedup": 300.0, "repeat": 300},
 }
+NATURE_CATEGORIES = (16, 17, 18)
+# 水の名前のうち載せないもの: 雨水の調整池・配水池などの設備、噴水、名前が数字だけのもの、
+# 東京ディズニーシーの水面の名前 (架空の地名。OSM では natural=water)
+_WATER_SKIP = re.compile(r"調整池|調節池|調節地|雨水|人工池|沈殿|浄水|配水池|滞水池|貯水|形成池|プール|遊水|噴水|井戸|ビオトープ|"
+                         r"^[0-9０-９]+号|^池$|^いけ$|^ハス$|湯$|園$")
+_WATER_SKIP_NAMES = {"ヴァルカンズ・コルドロン", "スマグラー入江", "メディテレーニアンハーバー", "ポートディスカバリー"}
+_WATER_SEA_CLASSES = ("ocean", "sea", "bay", "strait")
+_WATER_LAKE_CLASSES = ("lake", "lagoon", "reservoir")
+_PEAK_CLASSES = ("peak", "volcano")
+_RIVER_CLASSES = ("river", "stream", "canal")  # drain / ditch (排水路・用水路の細いもの) は載せない
+_RIVER_SKIP = re.compile(r"暗渠|排水|雨水|幹線|下水")
 ROAD_CATEGORIES = (9, 10, 11)
 JUNCTION_MAX_EM = 9.0  # IC・JCT の名前の札の幅の上限 (字の幅の合計、em。札の 幅 / 高さ は 8 倍までしか焼けない)
 JUNCTION_MAX_CHARS = 12  # 札のレコードを探す範囲 (シェーダーの VmtPlateBottom) に収まる字数
@@ -1004,10 +1023,12 @@ def label_candidates(db, z, tiles):
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=layers + (("transportation_name", "sapa", "railname") if roads else ()))
+        decoded = decode_mvt(data, only=layers + (("transportation_name", "sapa", "railname", "mountain_peak", "water_name",
+                                                   "waterway") if roads else ()))
         if roads:
             road_candidates(decoded.get("transportation_name"), z, tx, ty, cands)
             extra_candidates(decoded, z, tx, ty, cands)
+            nature_candidates(decoded, z, tx, ty, cands)
         for lname in layers:
             layer = decoded.get(lname)
             if not layer:
@@ -1152,6 +1173,86 @@ def extra_candidates(decoded, z, tx, ty, cands):
             if feat["props"].get("usage") in ("military", "industrial"):
                 continue  # 工場や基地の中の線路 (貨物線は出す。利用者の判断)
             line_name_candidate(feat, 14, scale, z, tx, ty, cands)
+
+
+def _nature_name(props, lang):
+    """山頂・水の名前の名前。元の名前 (name) が英字だけのもの (「toilette」「Horizon Bay」など、日本の地物ではない名前) は載せない。"""
+    local = props.get("name")
+    if not isinstance(local, str) or all(ord(ch) < 0x80 for ch in local):
+        return None
+    if lang == "en":
+        name = props.get("name:en") or props.get("name:ja-Latn") or local
+    else:
+        name = (props.get("name:" + lang) if lang else None) or local
+    name = clean_label(name.split(";")[0])
+    if not name or len(name) > (POI_MAX_CHARS * 2 if lang == "en" else POI_MAX_CHARS):
+        return None
+    return name
+
+
+def nature_candidates(decoded, z, tx, ty, cands):
+    """山頂 (16)・海と湖 (17)・川 (18) の名前の候補を cands に足す (OpenMapTiles の mountain_peak / water_name / waterway)。"""
+    lang = LABEL_CONFIG["lang"]
+    layer = decoded.get("mountain_peak")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pc = POI_CATEGORIES[16]
+        for feat in layer["features"]:
+            props = feat["props"]
+            ele = props.get("ele")
+            if feat["type"] != 1 or not feat["geom"] or props.get("class") not in _PEAK_CLASSES \
+                    or not isinstance(ele, (int, float)) or ele <= 0:
+                continue  # 標高の無いものは「〜坂」の取り違えなどが多い
+            name = _nature_name(props, lang)
+            if name is None:
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            cands.append({"pri": pc["pri"], "rank": -float(ele), "name": "%s %dm" % (name, int(round(ele))), "cat": 16,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": pc["size"],
+                          "margin": pc["margin"] * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("water_name")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pc = POI_CATEGORIES[17]
+        for feat in layer["features"]:
+            props = feat["props"]
+            cls = props.get("class")
+            sea = cls in _WATER_SEA_CLASSES
+            if feat["type"] not in (1, 2) or not feat["geom"] or not (sea or cls in _WATER_LAKE_CLASSES):
+                continue
+            name = _nature_name(props, lang)
+            local = props.get("name")
+            if name is None or _WATER_SKIP.search(local) or local in _WATER_SKIP_NAMES:
+                continue
+            if not sea and local.endswith(("川", "河")):
+                continue  # 川の水面 (多摩川・荒川など)。川の名前 (18) が線に沿って出す
+            pt = feat["geom"][0][0] if feat["type"] == 1 else _line_midpoint(feat["geom"])
+            if pt is None:
+                continue
+            x, y = pt[0] * scale, pt[1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            rank = props.get("rank", 99)
+            cands.append({"pri": pc["pri"] if sea else pc["pri_lake"],
+                          "rank": rank if isinstance(rank, (int, float)) else 99, "name": name, "cat": 17,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": pc["size_sea"] if sea else pc["size"],
+                          "margin": pc["margin"] * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("waterway")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        for feat in layer["features"]:
+            props = feat["props"]
+            if feat["type"] != 2 or not feat["geom"] or props.get("brunnel") == "tunnel":
+                continue  # 暗渠
+            cls = props.get("class")
+            if cls not in _RIVER_CLASSES or (z < 14 and cls != "river"):
+                continue
+            local = props.get("name")
+            if not isinstance(local, str) or _RIVER_SKIP.search(local):
+                continue
+            line_name_candidate(feat, 18, scale, z, tx, ty, cands)
 
 
 _SAPA_SUFFIX = re.compile(r"(SA|PA)$")
