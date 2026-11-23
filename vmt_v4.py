@@ -209,9 +209,10 @@ def mbtiles_for(region, given, tools, work, java_mem):
 
 # ---------------------------------------------------------------- 1. 候補
 
-def candidates(region, mbtiles, tiles):
-    """持ち物のタイルのラベルの候補。{"region", "wide", "langs", "zooms": {z: [言語ごとの候補のリスト]}}。"""
-    langs = label_setup(region)
+def candidates(region, mbtiles, tiles, tools=None):
+    """持ち物のタイルのラベルの候補。{"region", "wide", "langs", "zooms": {z: [言語ごとの候補のリスト]}}。
+    線の名前の長さや IC・JCT の名前の幅を測るので、配置・焼き込みと同じフォント (tools の Noto) を使う。"""
+    langs = label_setup(region, tools)
     vb = _vb()
     db = sqlite3.connect(f"file:{mbtiles}?mode=ro", uri=True)
     zooms = {}
@@ -569,7 +570,7 @@ def main():
     elif args.mode == "candidates":
         r = find(regions, args.region)
         mb = mbtiles_for(r, args.mbtiles, args.tools, args.work, args.java_mem)
-        dump_gz(os.path.join(args.out, f"{r['name']}.json.gz"), candidates(r, mb, owned(regions, inventory, r["name"])))
+        dump_gz(os.path.join(args.out, f"{r['name']}.json.gz"), candidates(r, mb, owned(regions, inventory, r["name"]), args.tools))
     elif args.mode == "labels":
         cand_files = sorted(glob.glob(os.path.join(args.cands, "*.json.gz")))
         frozen = sorted(glob.glob(os.path.join(args.frozen, "*.labels.json.gz"))) if args.frozen else []
