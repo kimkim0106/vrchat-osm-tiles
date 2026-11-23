@@ -158,6 +158,10 @@ POI_CATEGORIES = {
          "minz": 14},
     14: {"key": "rail_name", "title": "路線名", "size": 10, "pri": 3.8, "margin": 6, "dedup": 300.0, "repeat": 300,
          "minz": 14},
+    # 学校 (Issue #92。小中高・大学・専門学校と幼稚園・保育園)。思い出の場所を探せるように。公共施設より先に置く。
+    # 幼稚園・保育園は数が多い (東京で学校より多い) ので、公共施設の後・宿泊と飲食の前に置く (pri_kindergarten。
+    # 押し出すのが飲食店になるように)
+    15: {"key": "school", "title": "学校", "size": 9, "pri": 4.7, "pri_kindergarten": 5.0, "margin": 4, "dedup": 150.0},
 }
 ROAD_CATEGORIES = (9, 10, 11)
 JUNCTION_MAX_EM = 9.0  # IC・JCT の名前の札の幅の上限 (字の幅の合計、em。札の 幅 / 高さ は 8 倍までしか焼けない)
@@ -198,7 +202,9 @@ _ROAD_NAME_SUFFIX = ("道路", "自動車道", "線", "バイパス", "道")  # 
 POI_MAX_CHARS = 16  # これより長い名前の POI は載せない
 _POI_SKIP_SUFFIX = ("交番", "駐在所")  # 数が多く、観光の役に立たない
 _POI_SIGHT = {"attraction", "museum", "zoo", "aquarium", "theme_park", "castle", "monument", "viewpoint"}
-_POI_PUBLIC = {"town_hall", "police", "fire_station", "college"}
+_POI_PUBLIC = {"town_hall", "police", "fire_station",
+               # 運動施設とホール (Issue #92)。sports_centre には民間の店 (ゴルフの練習場など) も混ざるが、区別しにくいので全部入れる
+               "sports_centre", "stadium", "swimming_pool", "theatre"}
 _POI_FOOD = {"restaurant", "cafe", "fast_food", "bar", "beer", "ice_cream", "bakery"}
 _POI_SHOP = {"shop", "grocery", "clothing_store", "alcohol_shop", "pharmacy", "jewelry", "music", "mobile_phone",
              "department_store"}
@@ -215,8 +221,10 @@ def poi_category(props):
         return 3
     if cls in ("park", "garden"):
         return 4
+    if cls == "school" or cls == "college":  # school = 小中高・幼稚園・保育園、college = 大学・専門学校
+        return 15
     if cls in _POI_PUBLIC or (cls == "library" and sub == "library") or (cls == "post" and sub == "post_office") \
-            or (cls == "hospital" and sub == "hospital"):
+            or (cls == "hospital" and sub == "hospital") or (cls == "office" and sub == "government"):
         return 5
     if cls == "lodging":
         return 6
@@ -1038,6 +1046,8 @@ def label_candidates(db, z, tiles):
                             or str(props.get("name", "")).endswith(_POI_SKIP_SUFFIX):
                         continue
                     size, pri, margin = pc["size"], pc.get("pri14", pc["pri"]) if z >= 14 else pc["pri"], pc["margin"]
+                    if cat == 15 and props.get("subclass") == "kindergarten":
+                        pri = pc["pri_kindergarten"]
                 x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
                 if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある点は隣のタイルが持っている
                     continue
