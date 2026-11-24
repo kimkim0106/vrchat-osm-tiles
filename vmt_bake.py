@@ -172,6 +172,16 @@ POI_CATEGORIES = {
     18: {"key": "river", "title": "川", "size": 10, "pri": 4.1, "margin": 6, "dedup": 300.0, "repeat": 300},
 }
 NATURE_CATEGORIES = (16, 17, 18)
+# 山頂の印。名前の頭に付けて候補を作り、字レコードでは印を山頂の点 (基準点) に、名前をその 1 行上に真ん中そろえで置く:
+#   高取山 705m
+#        ▲
+# 名前の字には「1 行上」の印 (字の欄のビット 18..21 = 1。線の名前の向きと同じ欄で、山頂 (種類 16) では向きに使わない) を付け、
+# 2D ではシェーダー (VmtResolveGlyphLabel) が名前を箱の一辺 x PEAK_NAME_DY だけ上にずらす。3D (文字を立てる) では印は寝かせたまま、
+# 名前はずらさずに山頂の点に立てる (利用者の希望)
+PEAK_MARK = "\u25b2"  # ▲ (シェーダーの VMT_PEAK_MARK)
+PEAK_MARK_SCALE = 0.8  # 印の大きさ (名前の字に対する比)
+PEAK_NAME_DY = 0.5625  # 名前の中心の、印の中心からの高さ (箱の一辺に対する比 = 0.9 em。シェーダーの VMT_PEAK_NAME_DY と同じ)
+PEAK_NAME_UP = 1       # 名前の字の「1 行上」の印 (字の欄のビット 18..21 の値)
 # 水の名前のうち載せないもの: 雨水の調整池・配水池などの設備、噴水、名前が数字だけのもの、
 # 東京ディズニーシーの水面の名前 (架空の地名。OSM では natural=water)
 _WATER_SKIP = re.compile(r"調整池|調節池|調節地|雨水|人工池|沈殿|浄水|配水池|滞水池|貯水|形成池|プール|遊水|噴水|井戸|ビオトープ|"
@@ -453,6 +463,15 @@ WIDE_KINDS = {
 }
 WIDE_OSM_PLACE = {"island"}                                  # place レイヤーの class
 WIDE_OSM_WATER = {"ocean", "sea", "bay", "strait", "lake"}   # water_name レイヤーの class
+# 広域の地図の山・海・湖・川 (都市の床と同じ種類 16〜18。タブレットの「自然」で出し入れする)。(優先度, 字の大きさ)。
+# 優先度は WIDE_KINDS と同じ尺度。海は陸の地名とぶつかりにくいので先に、湾・湖・山は町の後、川は駅の後
+WIDE_NATURE = {
+    "sea": (2.5, 13),    # water_name の ocean / sea
+    "bay": (4.5, 12),    # bay / strait
+    "lake": (4.5, 12),
+    "peak": (4.5, 11),   # mountain_peak (標高のあるもの)。高い山から
+    "river": (6.5, 11),  # waterway の class river の線の名前。線に沿わせる
+}
 
 
 def _foreign_script(name):
@@ -1008,6 +1027,18 @@ def glyph_ink_center(ch):
 _CHOME = re.compile(r"^(.+?)[一二三四五六七八九十〇0-9０-９]+丁目$")
 
 
+def peak_marked(lab):
+    """山頂の印の付いたラベル (印を基準点に、名前を 1 行上に置く) か。それ以外のラベルは文字列の真ん中が基準点。"""
+    return lab.get("cat") == 16 and lab["name"].startswith(PEAK_MARK)
+
+
+def peak_name(name, ele):
+    """山頂のラベルの文字列 (「▲枡形山 84m」)。字レコードのビット 18.. を使うので、U+3FFFF を超える字のある名前は None。"""
+    if any(ord(ch) > 0x3FFFF for ch in name):
+        return None
+    return "%s%s %dm" % (PEAK_MARK, name, int(round(ele)))
+
+
 def _unit_m(z, lat):
     """ズーム z でのタイル単位 1 つの長さ (m)。"""
     return 40075016.686 * math.cos(math.radians(lat)) / (1 << z) / EXTENT
@@ -1125,24 +1156,27 @@ def road_candidates(layer, z, tx, ty, cands):
         cands.append(c)
 
 
-def line_name_candidate(feat, cat, scale, z, tx, ty, cands):
-    """線の名前 (道路名 13・路線名 14) の候補を線の真ん中に足す。"""
+def line_name_candidate(feat, cat, scale, z, tx, ty, cands, pri=None, size=None, margin=None):
+    """線の名前 (道路名 13・路線名 14・川 18) の候補を線の真ん中に足す。pri / size / margin は種類の既定を替えるとき (広域の地図)。"""
     pc = POI_CATEGORIES[cat]
-    if z < pc.get("minz", 0):
+    if pri is None and z < pc.get("minz", 0):
         return
+    pri = pc["pri"] if pri is None else pri
+    size = pc["size"] if size is None else size
+    margin = pc["margin"] if margin is None else margin
     name = line_label_name(feat["props"], LABEL_CONFIG["lang"])
     if name is None:
         return
     # 名前の長さ (倍率 1 のとき、レイヤーの座標の単位)。この長さの弦がいちばん線に沿う所に、弦の向きで置く
-    width = sum(glyph_advance(ch) for ch in name) * pc["size"] / float(LABEL_FONT_PX) * (EXTENT / 512.0) / scale
+    width = sum(glyph_advance(ch) for ch in name) * size / float(LABEL_FONT_PX) * (EXTENT / 512.0) / scale
     placed = _line_chord(feat["geom"], width)
     if placed is None:
         return
     x, y = placed[0] * scale, placed[1] * scale
     if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
         return
-    cands.append({"pri": pc["pri"], "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                  "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"], "repeat": pc["repeat"],
+    cands.append({"pri": pri, "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                  "size": size, "margin": margin * LABEL_CONFIG["spacing"], "repeat": pc["repeat"],
                   "rot": placed[2] + 1})
 
 
@@ -1209,7 +1243,10 @@ def nature_candidates(decoded, z, tx, ty, cands):
             x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
             if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                 continue
-            cands.append({"pri": pc["pri"], "rank": -float(ele), "name": "%s %dm" % (name, int(round(ele))), "cat": 16,
+            label = peak_name(name, ele)
+            if label is None:
+                continue
+            cands.append({"pri": pc["pri"], "rank": -float(ele), "name": label, "cat": 16,
                           "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": pc["size"],
                           "margin": pc["margin"] * LABEL_CONFIG["spacing"]})
     layer = decoded.get("water_name")
@@ -1298,8 +1335,52 @@ def _tile_units(lon, lat, z):
     return (lon + 180.0) / 360.0 * n, (1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * n
 
 
+def _has_japanese(name):
+    """かな・漢字を含むか (広域の地図で、Natural Earth 由来のローマ字の川の名前などを載せないため)。"""
+    return any("\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff"
+               or 0x20000 <= ord(ch) <= 0x3FFFF for ch in name)
+
+
+def wide_nature_candidates(decoded, z, tx, ty, cands):
+    """広域の地図の山頂 (16) と川 (18) の候補を cands に足す (海・湖 (17) は wide_candidates が OSM の水の名前と一緒に作る)。"""
+    layer = decoded.get("mountain_peak")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pri, size = WIDE_NATURE["peak"]
+        for feat in layer["features"]:
+            props = feat["props"]
+            ele = props.get("ele")
+            if feat["type"] != 1 or not feat["geom"] or props.get("class") not in _PEAK_CLASSES \
+                    or not isinstance(ele, (int, float)) or ele <= 0:
+                continue
+            name = _nature_name(props, "ja")
+            if name is None or not _has_japanese(name) or _foreign_script(name):
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            label = peak_name(name, ele)
+            if label is None:
+                continue
+            cands.append({"pri": pri, "rank": -float(ele), "name": label, "cat": 16,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": size,
+                          "margin": 4 * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("waterway")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pri, size = WIDE_NATURE["river"]
+        for feat in layer["features"]:
+            props = feat["props"]
+            if feat["type"] != 2 or not feat["geom"] or props.get("class") != "river" or props.get("brunnel") == "tunnel":
+                continue
+            local = props.get("name:ja") or props.get("name")
+            if not isinstance(local, str) or not _has_japanese(local) or _RIVER_SKIP.search(local):
+                continue
+            line_name_candidate(feat, 18, scale, z, tx, ty, cands, pri=pri, size=size, margin=4)
+
+
 def wide_candidates(db, z, tiles):
-    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖)。優先度順に並べて返す。"""
+    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖・山頂・川)。優先度順に並べて返す。"""
     inside = set(tiles)
     cands = []
     names = set()
@@ -1319,7 +1400,8 @@ def wide_candidates(db, z, tiles):
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=("place", "water_name"))
+        decoded = decode_mvt(data, only=("place", "water_name", "mountain_peak", "waterway"))
+        wide_nature_candidates(decoded, z, tx, ty, cands)
         for lname, classes in (("place", WIDE_OSM_PLACE), ("water_name", WIDE_OSM_WATER)):
             layer = decoded.get(lname)
             if not layer:
@@ -1336,15 +1418,22 @@ def wide_candidates(db, z, tiles):
                 name = clean_label(name)
                 if not name or name in names or name in seen:
                     continue
+                c_cat, c_size, c_pri = cat, size, pri
+                if lname == "water_name":  # 海・湖は「自然」の種類 (以前は地名と同じ種類 0 だった)
+                    if isinstance(local, str) and (_WATER_SKIP.search(local) or local in _WATER_SKIP_NAMES):
+                        continue
+                    kind = {"ocean": "sea", "sea": "sea", "lake": "lake"}.get(props.get("class"), "bay")
+                    c_cat = 17
+                    c_pri, c_size = WIDE_NATURE[kind]
                 # 点ならその点、線 (湖の中心線) なら最初の線の真ん中の点
                 line = feat["geom"][0]
                 x, y = line[len(line) // 2][0] * scale, line[len(line) // 2][1] * scale
                 if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                     continue
                 seen.add(name)
-                cands.append({"pri": pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
-                              "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                              "size": size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
+                cands.append({"pri": c_pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
+                              "name": name, "cat": c_cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                              "size": c_size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
     cands.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
     return cands
 
@@ -1446,6 +1535,11 @@ def place_labels(cands, fixed=()):
         c["advs"] = [glyph_advance(ch) * k for ch in c["name"]]
         hw[i] = sum(c["advs"]) / 2 * px
         hh[i] = c["size"] * 0.6 * px
+        if peak_marked(c):
+            # 基準点は印 (▲) の真ん中で、名前はその 1 行上。箱は基準点を中心に上下対称なので、縦は名前の上の端までを半分の高さにする
+            # (下の半分は印の分より大きく、余分に空ける)。横は名前の幅 (印は名前より狭い)
+            hw[i] = sum(c["advs"][1:]) / 2 * px
+            hh[i] = (PEAK_NAME_DY * LABEL_CELL / LABEL_FONT_PX + 0.6) * c["size"] * px
         plate = plate_dims(c)
         if plate is not None:  # 道路番号は看板の大きさで重なりを調べる
             hw[i] = plate[0] / 2 * px
@@ -1639,12 +1733,21 @@ def build_glyph_labels(planned, z, tx, ty, used=None):
             yq = int(min(max(round(py / ph * 128) + 128, 0), 255))
             g = PLATE_FLAG | (shape << 20) | (yq << 10) | ratio
             out.append((x, y, 0.0, 0.0, g, ph * px, lab["kmin"], lab["kmax"], lab.get("cat", 0)))
-        pen = -sum(lab["advs"]) / 2
-        for ch, adv in zip(lab["name"], lab["advs"]):
+        name, advs, up = lab["name"], lab["advs"], 0
+        if peak_marked(lab):
+            # 山頂: 印 (▲) を基準点 (山頂の点) に小さめに置き、名前はその 1 行上に真ん中そろえ (シェーダーが上へずらす)
+            if used is not None:
+                used.add(PEAK_MARK)
+            out.append((x, y, 0.0, 0.0, ord(PEAK_MARK), side * PEAK_MARK_SCALE, lab["kmin"], lab["kmax"], 16))
+            name, advs, up = name[1:], advs[1:], PEAK_NAME_UP
+        pen = -sum(advs) / 2
+        for ch, adv in zip(name, advs):
             if not ch.isspace():
                 g = ord(ch)  # 文字コード (ワールドの表でアトラスのマスを引く)
                 if lab.get("rot"):
                     g |= int(lab["rot"]) << LINE_ROT_SHIFT  # 線の向き (向きの番号 + 1)
+                elif up:
+                    g |= up << LINE_ROT_SHIFT  # 山頂の名前の「1 行上」
                 if used is not None:
                     used.add(ch)
                 cx = (pen + glyph_ink_center(ch) * k) * px
