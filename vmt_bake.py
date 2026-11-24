@@ -172,6 +172,8 @@ POI_CATEGORIES = {
     18: {"key": "river", "title": "川", "size": 10, "pri": 4.1, "margin": 6, "dedup": 300.0, "repeat": 300},
 }
 NATURE_CATEGORIES = (16, 17, 18)
+# 山頂の印。名前の頭に付け、ラベルの基準点 (山頂の点) をこの字の真ん中に置く (名前は右に続く。文字が回っても印は山頂に残る)
+PEAK_MARK = "\u25b2"  # ▲
 # 水の名前のうち載せないもの: 雨水の調整池・配水池などの設備、噴水、名前が数字だけのもの、
 # 東京ディズニーシーの水面の名前 (架空の地名。OSM では natural=water)
 _WATER_SKIP = re.compile(r"調整池|調節池|調節地|雨水|人工池|沈殿|浄水|配水池|滞水池|貯水|形成池|プール|遊水|噴水|井戸|ビオトープ|"
@@ -1017,6 +1019,16 @@ def glyph_ink_center(ch):
 _CHOME = re.compile(r"^(.+?)[一二三四五六七八九十〇0-9０-９]+丁目$")
 
 
+def peak_marked(lab):
+    """基準点を先頭の字 (山頂の印) に置くラベルか。それ以外のラベルは文字列の真ん中が基準点。"""
+    return lab.get("cat") == 16 and lab["name"].startswith(PEAK_MARK)
+
+
+def peak_name(name, ele):
+    """山頂のラベルの文字列 (「▲枡形山 84m」)。"""
+    return "%s%s %dm" % (PEAK_MARK, name, int(round(ele)))
+
+
 def _unit_m(z, lat):
     """ズーム z でのタイル単位 1 つの長さ (m)。"""
     return 40075016.686 * math.cos(math.radians(lat)) / (1 << z) / EXTENT
@@ -1221,7 +1233,7 @@ def nature_candidates(decoded, z, tx, ty, cands):
             x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
             if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                 continue
-            cands.append({"pri": pc["pri"], "rank": -float(ele), "name": "%s %dm" % (name, int(round(ele))), "cat": 16,
+            cands.append({"pri": pc["pri"], "rank": -float(ele), "name": peak_name(name, ele), "cat": 16,
                           "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": pc["size"],
                           "margin": pc["margin"] * LABEL_CONFIG["spacing"]})
     layer = decoded.get("water_name")
@@ -1334,7 +1346,7 @@ def wide_nature_candidates(decoded, z, tx, ty, cands):
             x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
             if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                 continue
-            cands.append({"pri": pri, "rank": -float(ele), "name": "%s %dm" % (name, int(round(ele))), "cat": 16,
+            cands.append({"pri": pri, "rank": -float(ele), "name": peak_name(name, ele), "cat": 16,
                           "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": size,
                           "margin": 4 * LABEL_CONFIG["spacing"]})
     layer = decoded.get("waterway")
@@ -1506,6 +1518,10 @@ def place_labels(cands, fixed=()):
         k = c["size"] / float(LABEL_FONT_PX)
         c["advs"] = [glyph_advance(ch) * k for ch in c["name"]]
         hw[i] = sum(c["advs"]) / 2 * px
+        if peak_marked(c):
+            # 基準点は先頭の印の真ん中で、名前は右に続く。文字は見る人の向きに回るので、基準点から最も遠い字の端までを半径にした
+            # (真ん中にそろえたときの倍ほどの) 箱で調べる
+            hw[i] = (sum(c["advs"]) - glyph_ink_center(PEAK_MARK) * k) * px
         hh[i] = c["size"] * 0.6 * px
         plate = plate_dims(c)
         if plate is not None:  # 道路番号は看板の大きさで重なりを調べる
@@ -1700,7 +1716,8 @@ def build_glyph_labels(planned, z, tx, ty, used=None):
             yq = int(min(max(round(py / ph * 128) + 128, 0), 255))
             g = PLATE_FLAG | (shape << 20) | (yq << 10) | ratio
             out.append((x, y, 0.0, 0.0, g, ph * px, lab["kmin"], lab["kmax"], lab.get("cat", 0)))
-        pen = -sum(lab["advs"]) / 2
+        # ふつうは文字列の真ん中が基準点。山頂は先頭の印 (▲) のインクの真ん中が基準点 (山頂の点) に来るようにする
+        pen = -glyph_ink_center(PEAK_MARK) * k if peak_marked(lab) else -sum(lab["advs"]) / 2
         for ch, adv in zip(lab["name"], lab["advs"]):
             if not ch.isspace():
                 g = ord(ch)  # 文字コード (ワールドの表でアトラスのマスを引く)
