@@ -453,6 +453,15 @@ WIDE_KINDS = {
 }
 WIDE_OSM_PLACE = {"island"}                                  # place レイヤーの class
 WIDE_OSM_WATER = {"ocean", "sea", "bay", "strait", "lake"}   # water_name レイヤーの class
+# 広域の地図の山・海・湖・川 (都市の床と同じ種類 16〜18。タブレットの「自然」で出し入れする)。(優先度, 字の大きさ)。
+# 優先度は WIDE_KINDS と同じ尺度。海は陸の地名とぶつかりにくいので先に、湾・湖・山は町の後、川は駅の後
+WIDE_NATURE = {
+    "sea": (2.5, 13),    # water_name の ocean / sea
+    "bay": (4.5, 12),    # bay / strait
+    "lake": (4.5, 12),
+    "peak": (4.5, 11),   # mountain_peak (標高のあるもの)。高い山から
+    "river": (6.5, 11),  # waterway の class river の線の名前。線に沿わせる
+}
 
 
 def _foreign_script(name):
@@ -1125,24 +1134,27 @@ def road_candidates(layer, z, tx, ty, cands):
         cands.append(c)
 
 
-def line_name_candidate(feat, cat, scale, z, tx, ty, cands):
-    """線の名前 (道路名 13・路線名 14) の候補を線の真ん中に足す。"""
+def line_name_candidate(feat, cat, scale, z, tx, ty, cands, pri=None, size=None, margin=None):
+    """線の名前 (道路名 13・路線名 14・川 18) の候補を線の真ん中に足す。pri / size / margin は種類の既定を替えるとき (広域の地図)。"""
     pc = POI_CATEGORIES[cat]
-    if z < pc.get("minz", 0):
+    if pri is None and z < pc.get("minz", 0):
         return
+    pri = pc["pri"] if pri is None else pri
+    size = pc["size"] if size is None else size
+    margin = pc["margin"] if margin is None else margin
     name = line_label_name(feat["props"], LABEL_CONFIG["lang"])
     if name is None:
         return
     # 名前の長さ (倍率 1 のとき、レイヤーの座標の単位)。この長さの弦がいちばん線に沿う所に、弦の向きで置く
-    width = sum(glyph_advance(ch) for ch in name) * pc["size"] / float(LABEL_FONT_PX) * (EXTENT / 512.0) / scale
+    width = sum(glyph_advance(ch) for ch in name) * size / float(LABEL_FONT_PX) * (EXTENT / 512.0) / scale
     placed = _line_chord(feat["geom"], width)
     if placed is None:
         return
     x, y = placed[0] * scale, placed[1] * scale
     if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
         return
-    cands.append({"pri": pc["pri"], "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                  "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"], "repeat": pc["repeat"],
+    cands.append({"pri": pri, "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                  "size": size, "margin": margin * LABEL_CONFIG["spacing"], "repeat": pc["repeat"],
                   "rot": placed[2] + 1})
 
 
@@ -1298,8 +1310,49 @@ def _tile_units(lon, lat, z):
     return (lon + 180.0) / 360.0 * n, (1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * n
 
 
+def _has_japanese(name):
+    """かな・漢字を含むか (広域の地図で、Natural Earth 由来のローマ字の川の名前などを載せないため)。"""
+    return any("\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff"
+               or 0x20000 <= ord(ch) <= 0x3FFFF for ch in name)
+
+
+def wide_nature_candidates(decoded, z, tx, ty, cands):
+    """広域の地図の山頂 (16) と川 (18) の候補を cands に足す (海・湖 (17) は wide_candidates が OSM の水の名前と一緒に作る)。"""
+    layer = decoded.get("mountain_peak")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pri, size = WIDE_NATURE["peak"]
+        for feat in layer["features"]:
+            props = feat["props"]
+            ele = props.get("ele")
+            if feat["type"] != 1 or not feat["geom"] or props.get("class") not in _PEAK_CLASSES \
+                    or not isinstance(ele, (int, float)) or ele <= 0:
+                continue
+            name = _nature_name(props, "ja")
+            if name is None or not _has_japanese(name) or _foreign_script(name):
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            cands.append({"pri": pri, "rank": -float(ele), "name": "%s %dm" % (name, int(round(ele))), "cat": 16,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": size,
+                          "margin": 4 * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("waterway")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pri, size = WIDE_NATURE["river"]
+        for feat in layer["features"]:
+            props = feat["props"]
+            if feat["type"] != 2 or not feat["geom"] or props.get("class") != "river" or props.get("brunnel") == "tunnel":
+                continue
+            local = props.get("name:ja") or props.get("name")
+            if not isinstance(local, str) or not _has_japanese(local) or _RIVER_SKIP.search(local):
+                continue
+            line_name_candidate(feat, 18, scale, z, tx, ty, cands, pri=pri, size=size, margin=4)
+
+
 def wide_candidates(db, z, tiles):
-    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖)。優先度順に並べて返す。"""
+    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖・山頂・川)。優先度順に並べて返す。"""
     inside = set(tiles)
     cands = []
     names = set()
@@ -1319,7 +1372,8 @@ def wide_candidates(db, z, tiles):
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=("place", "water_name"))
+        decoded = decode_mvt(data, only=("place", "water_name", "mountain_peak", "waterway"))
+        wide_nature_candidates(decoded, z, tx, ty, cands)
         for lname, classes in (("place", WIDE_OSM_PLACE), ("water_name", WIDE_OSM_WATER)):
             layer = decoded.get(lname)
             if not layer:
@@ -1336,15 +1390,22 @@ def wide_candidates(db, z, tiles):
                 name = clean_label(name)
                 if not name or name in names or name in seen:
                     continue
+                c_cat, c_size, c_pri = cat, size, pri
+                if lname == "water_name":  # 海・湖は「自然」の種類 (以前は地名と同じ種類 0 だった)
+                    if isinstance(local, str) and (_WATER_SKIP.search(local) or local in _WATER_SKIP_NAMES):
+                        continue
+                    kind = {"ocean": "sea", "sea": "sea", "lake": "lake"}.get(props.get("class"), "bay")
+                    c_cat = 17
+                    c_pri, c_size = WIDE_NATURE[kind]
                 # 点ならその点、線 (湖の中心線) なら最初の線の真ん中の点
                 line = feat["geom"][0]
                 x, y = line[len(line) // 2][0] * scale, line[len(line) // 2][1] * scale
                 if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                     continue
                 seen.add(name)
-                cands.append({"pri": pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
-                              "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                              "size": size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
+                cands.append({"pri": c_pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
+                              "name": name, "cat": c_cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                              "size": c_size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
     cands.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
     return cands
 
