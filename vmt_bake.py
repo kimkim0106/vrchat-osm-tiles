@@ -465,6 +465,11 @@ WIDE_OSM_PLACE = {"island"}                                  # place レイヤ�
 WIDE_OSM_WATER = {"ocean", "sea", "bay", "strait", "lake"}   # water_name レイヤーの class
 # 広域の地図の山・海・湖・川 (都市の床と同じ種類 16〜18。タブレットの「自然」で出し入れする)。(優先度, 字の大きさ)。
 # 優先度は WIDE_KINDS と同じ尺度。海は陸の地名とぶつかりにくいので先に、湾・湖・山は町の後、川は駅の後
+# 広域の地図の道路番号 (9 高速 / 10 国道) と IC・JCT (12) の優先度 (Issue #102。WIDE_KINDS と同じ尺度)。
+# OpenMapTiles の transportation_name は高速が z6、国道が z8、IC・JCT が z10 から入っている (都道府県道は z12 からなので出さない)。
+# 高速は主な駅の後・町の前、国道は区の後・駅の前、IC・JCT は川の後
+WIDE_ROAD = {9: 3.5, 10: 5.5, 12: 6.8}
+WIDE_CATEGORIES = (0, 1) + tuple(WIDE_ROAD) + NATURE_CATEGORIES  # 広域の地図に出る種類 (manifest の labelCategories)
 WIDE_NATURE = {
     "sea": (2.5, 13),    # water_name の ocean / sea
     "bay": (4.5, 12),    # bay / strait
@@ -1110,15 +1115,17 @@ def label_candidates(db, z, tiles):
     return cands
 
 
-def road_candidates(layer, z, tx, ty, cands):
+def road_candidates(layer, z, tx, ty, cands, wide=False):
     """道路番号の候補 (POI_CATEGORIES の 9..11) と IC・JCT の名前の候補 (12) を cands に足す。
-    同じ番号・名前の近いものは merge_labels が 1 つにする。"""
+    同じ番号・名前の近いものは merge_labels が 1 つにする。
+    wide なら広域の地図: 高速・国道の番号と IC・JCT を、ズームによらず WIDE_ROAD の優先度で足す (道路名と都道府県道は足さない)。"""
     if not layer:
         return
     scale = EXTENT / float(layer["extent"])
     jc = POI_CATEGORIES[12]
     for feat in layer["features"]:
-        if feat["type"] == 1 and feat["geom"] and feat["props"].get("subclass") == "junction" and z >= jc["minz"]:
+        if feat["type"] == 1 and feat["geom"] and feat["props"].get("subclass") == "junction" \
+                and (wide or z >= jc["minz"]):
             name = junction_name(feat["props"], LABEL_CONFIG["lang"])
             if name is None or len([ch for ch in name if not ch.isspace()]) > JUNCTION_MAX_CHARS \
                     or sum(glyph_advance(ch) for ch in name) / float(LABEL_FONT_PX) > JUNCTION_MAX_EM:
@@ -1126,19 +1133,22 @@ def road_candidates(layer, z, tx, ty, cands):
             x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
             if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                 continue
-            cands.append({"pri": jc["pri"], "rank": 99, "name": name, "cat": 12, "x": tx * EXTENT + x,
-                          "y": ty * EXTENT + y, "size": jc["size"], "margin": jc["margin"] * LABEL_CONFIG["spacing"]})
+            cands.append({"pri": WIDE_ROAD[12] if wide else jc["pri"], "rank": 99, "name": name, "cat": 12,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": jc["size"],
+                          "margin": jc["margin"] * LABEL_CONFIG["spacing"]})
             continue
         if feat["type"] != 2 or not feat["geom"]:
             continue
-        if feat["props"].get("class") in _ROAD_NAME_CLASSES and feat["props"].get("subclass") != "junction":
+        if not wide and feat["props"].get("class") in _ROAD_NAME_CLASSES and feat["props"].get("subclass") != "junction":
             line_name_candidate(feat, 13, scale, z, tx, ty, cands)
         rc = road_category(feat["props"])
         if rc is None:
             continue
         cat, ref, shape = rc
         pc = POI_CATEGORIES[cat]
-        if z < pc.get("minz", 0):
+        if wide and cat not in WIDE_ROAD:
+            continue
+        if not wide and z < pc.get("minz", 0):
             continue
         mid = _line_midpoint(feat["geom"])
         if mid is None:
@@ -1146,7 +1156,8 @@ def road_candidates(layer, z, tx, ty, cands):
         x, y = mid[0] * scale, mid[1] * scale
         if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
             continue
-        c = {"pri": pc["pri"], "rank": 99, "name": ref, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+        c = {"pri": WIDE_ROAD[cat] if wide else pc["pri"], "rank": 99, "name": ref, "cat": cat,
+             "x": tx * EXTENT + x, "y": ty * EXTENT + y,
              "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"]}
         if "kcap" in pc:
             c["kcap"] = pc["kcap"]
@@ -1380,7 +1391,7 @@ def wide_nature_candidates(decoded, z, tx, ty, cands):
 
 
 def wide_candidates(db, z, tiles):
-    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖・山頂・川)。優先度順に並べて返す。"""
+    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖・山頂・川・道路番号・IC・JCT)。優先度順に並べて返す。"""
     inside = set(tiles)
     cands = []
     names = set()
@@ -1396,12 +1407,14 @@ def wide_candidates(db, z, tiles):
     lang = LABEL_CONFIG["lang"] or "ja"
     cat, size, pri, margin = WIDE_KINDS["osm"]
     seen = set()
+    roads = []
     for tx, ty in tiles:
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=("place", "water_name", "mountain_peak", "waterway"))
+        decoded = decode_mvt(data, only=("place", "water_name", "mountain_peak", "waterway", "transportation_name"))
         wide_nature_candidates(decoded, z, tx, ty, cands)
+        road_candidates(decoded.get("transportation_name"), z, tx, ty, roads, wide=True)
         for lname, classes in (("place", WIDE_OSM_PLACE), ("water_name", WIDE_OSM_WATER)):
             layer = decoded.get(lname)
             if not layer:
@@ -1434,6 +1447,8 @@ def wide_candidates(db, z, tiles):
                 cands.append({"pri": c_pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
                               "name": name, "cat": c_cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
                               "size": c_size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
+    # 道路番号の上下線・IC の入口と出口の点など、近くの同名は 1 つにする (都市の床と同じ merge_labels。距離は候補ごとの緯度で測る)
+    cands += merge_labels(roads, None, z)
     cands.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
     return cands
 
@@ -2241,8 +2256,9 @@ def main(argv=None):
                         "spacing": LABEL_CONFIG["spacing"], "poi": LABEL_CONFIG["poi"],
                         "wide": os.path.basename(args.wide_labels) if args.wide_labels else None,
                         "boundaryLevels": args.boundary_levels},
-        # 広域の地図は地名 (0) と駅 (1)。種類の番号は POI と同じ (タブレットの「駅」のチェックで出し入れできる)
-        "labelCategories": label_categories()[:2] if wide is not None
+        # 広域の地図は地名 (0)・駅 (1)・道路番号と IC・JCT (9, 10, 12)・自然 (16..18)。種類の番号は POI と同じ
+        # (タブレットのチェックで出し入れできる)
+        "labelCategories": [c for c in label_categories() if c["id"] in WIDE_CATEGORIES] if wide is not None
         else label_categories() if LABEL_CONFIG["poi"] else label_categories()[:1],
         # 1 タイルのラベル頂点の上限。Unity は地名の入れ物をこの大きさまで用意する (タイルの labelVertices で選ぶ)
         "labelVertsPerPool": LABEL_CONFIG["verts"],
