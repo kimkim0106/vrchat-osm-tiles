@@ -55,6 +55,10 @@
                    (タイル単位、10bit)。頂点レコードと同じ 12bit × 2。縦のずれは無い (箱の中心は基準点の高さ)
               T2 = 字 24bit (R = 上位 8bit)。最上位のビット (0x800000) が 0 なら Unicode の文字コード (21bit)、
                    1 なら残りの 23bit がタイルのアトラスの番号 (2026-11-20 より前に焼いたタイル。今のベイカーは書かない)
+                   0x400000 のビットが立っていれば道路番号の看板 (Issue #83。字ではない): ビット 20..21 = 形 (0 角の丸い長方形 /
+                   1 おにぎり / 2 六角形 / 3 下が丸い形)、ビット 10..17 = 看板の中心の縦のずれ / 高さ x 128 + 128、ビット 0..9 = 幅 / 高さ x 128。
+                   箱の一辺 (T1) は看板の高さ。看板は縁取りの段で描き (同じラベルの字の縁取りは描かない)、字は白で描く。
+                   看板を知らないシェーダーは表に無い文字コードとして描かない
               T3 = (kmin, kmax, 種類)。形式 1 と同じ
               字の箱はアトラスの 1 マス (32 px) 全体。字の形は箱の横の真ん中にインクの箱の真ん中、縦は基準線を
               (32 - (ascent + descent)) / 2 + ascent の高さに置く (TextMeshPro の <mspace> と同じ。共有のアトラスもこの置き方)
@@ -133,11 +137,103 @@ POI_CATEGORIES = {
     6: {"key": "lodging", "title": "宿泊", "size": 9, "pri": 5.2, "margin": 4, "dedup": 100.0},
     7: {"key": "food", "title": "飲食", "size": 9, "pri": 5.6, "margin": 3, "dedup": 50.0},
     8: {"key": "shop", "title": "買い物", "size": 9, "pri": 5.8, "margin": 3, "dedup": 50.0},
+    # 道路番号 (Issue #83。transportation_name レイヤーの線の真ん中に番号だけを置く)。拡大すると高速 → 国道 → 都道府県道の順に出るよう、
+    # 数字は漢字より背が低いので、字の大きさは地名・POI より大きくする。
+    # 優先度に加えて kcap (この k より大きい倍率 = 縮小した状態では出さない) を持つ。minz = このズームより下のタイルには載せない
+    # 同じ番号の候補は線の切れ目ごとに残し (dedup は上下線の重なりを消す程度)、置くときに repeat (512px のタイルでの px。倍率に比例)
+    # 以内に同じ番号があれば置かない。1 つ目がほかのラベルとぶつかっても、近くの別の候補が置けるように
+    9: {"key": "road_expressway", "title": "高速道路", "size": 14, "pri": 1.5, "margin": 10, "dedup": 300.0, "repeat": 220},
+    10: {"key": "road_national", "title": "国道", "size": 14, "pri": 2.8, "margin": 10, "dedup": 300.0, "repeat": 220},
+    11: {"key": "road_prefectural", "title": "都道府県道", "size": 13, "pri": 4.9, "margin": 10, "dedup": 300.0,
+         "repeat": 220, "minz": 14, "kcap": 4},
+    # 高速の IC・JCT・出入口 (OSM の highway=motorway_junction。OpenMapTiles では transportation_name の点) と SA・PA
+    # (highway=services / rest_area。OpenMapTiles に無いので、配信側が planetiler の独自スキーマで作る sapa レイヤー)の名前。
+    # 高速の看板と同じ緑の長方形の札に白い字で出す (首都高の「三軒茶屋」のように IC も出口も付かない名前が多く、
+    # 地名と見分けるため)。上下線・入口と出口の点が同じ名前で並ぶので、近くの同名は 1 つにする
+    12: {"key": "expressway_facility", "title": "IC・JCT・SA・PA", "size": 11, "pri": 3.6, "margin": 8, "dedup": 1500.0,
+         "minz": 14},
+    # 道路名 (Issue #86。transportation_name の線の名前。trunk〜secondary) と鉄道の路線名 (配信側の独自スキーマの
+    # railname レイヤー = OSM の線路の way の name。貨物線も出す)。どちらも線の真ん中にまっすぐ置き、同じ名前は repeat 以内に置かない
+    13: {"key": "road_name", "title": "道路名", "size": 10, "pri": 4.4, "margin": 6, "dedup": 300.0, "repeat": 300,
+         "minz": 14},
+    14: {"key": "rail_name", "title": "路線名", "size": 10, "pri": 3.8, "margin": 6, "dedup": 300.0, "repeat": 300,
+         "minz": 14},
+    # 学校 (Issue #92。小中高・大学・専門学校と幼稚園・保育園)。思い出の場所を探せるように。公共施設より先に置く。
+    # 幼稚園・保育園は数が多い (東京で学校より多い) ので、公共施設の後・宿泊と飲食の前に置く (pri_kindergarten。
+    # 押し出すのが飲食店になるように)
+    15: {"key": "school", "title": "学校", "size": 9, "pri": 4.7, "pri_kindergarten": 5.0, "margin": 4, "dedup": 150.0},
+    # 山・川・湖 (2026-11-23。タブレットでは 1 つのチェックでまとめて出し入れする)。
+    # 山頂 = mountain_peak レイヤーの peak / volcano で標高のあるもの。名前の後に標高を付ける (「枡形山 84m」)。高い山から置く
+    16: {"key": "peak", "title": "山頂", "size": 10, "pri": 3.2, "margin": 6, "dedup": 1000.0},
+    # 水の名前 = water_name レイヤーの点 (海・湾・海峡は pri、湖・池・濠・運河は pri_lake。公園の中の小さな池が多いので、幼稚園と同じ後ろの方)
+    17: {"key": "water", "title": "海・湖", "size": 10, "pri": 2.0, "pri_lake": 5.0, "size_sea": 13, "margin": 6,
+         "dedup": 1500.0},
+    # 川の名前 = waterway レイヤーの線の名前。道路名・路線名と同じく線に沿わせる。z13 (全体の地図) は class river だけ
+    18: {"key": "river", "title": "川", "size": 10, "pri": 4.1, "margin": 6, "dedup": 300.0, "repeat": 300},
 }
+NATURE_CATEGORIES = (16, 17, 18)
+# 山頂の印。名前の頭に付けて候補を作り、字レコードでは印を山頂の点 (基準点) に、名前をその 1 行上に真ん中そろえで置く:
+#   高取山 705m
+#        ▲
+# 名前の字には「1 行上」の印 (字の欄のビット 18..21 = 1。線の名前の向きと同じ欄で、山頂 (種類 16) では向きに使わない) を付け、
+# 2D ではシェーダー (VmtResolveGlyphLabel) が名前を箱の一辺 x PEAK_NAME_DY だけ上にずらす。3D (文字を立てる) では印は寝かせたまま、
+# 名前はずらさずに山頂の点に立てる (利用者の希望)
+PEAK_MARK = "\u25b2"  # ▲ (シェーダーの VMT_PEAK_MARK)
+PEAK_MARK_SCALE = 0.8  # 印の大きさ (名前の字に対する比)
+PEAK_NAME_DY = 0.5625  # 名前の中心の、印の中心からの高さ (箱の一辺に対する比 = 0.9 em。シェーダーの VMT_PEAK_NAME_DY と同じ)
+PEAK_NAME_UP = 1       # 名前の字の「1 行上」の印 (字の欄のビット 18..21 の値)
+# 水の名前のうち載せないもの: 雨水の調整池・配水池などの設備、噴水、名前が数字だけのもの、
+# 東京ディズニーシーの水面の名前 (架空の地名。OSM では natural=water)
+_WATER_SKIP = re.compile(r"調整池|調節池|調節地|雨水|人工池|沈殿|浄水|配水池|滞水池|貯水|形成池|プール|遊水|噴水|井戸|ビオトープ|"
+                         r"^[0-9０-９]+号|^池$|^いけ$|^ハス$|湯$|園$")
+_WATER_SKIP_NAMES = {"ヴァルカンズ・コルドロン", "スマグラー入江", "メディテレーニアンハーバー", "ポートディスカバリー"}
+_WATER_SEA_CLASSES = ("ocean", "sea", "bay", "strait")
+_WATER_LAKE_CLASSES = ("lake", "lagoon", "reservoir")
+_PEAK_CLASSES = ("peak", "volcano")
+_RIVER_CLASSES = ("river", "stream", "canal")  # drain / ditch (排水路・用水路の細いもの) は載せない
+_RIVER_SKIP = re.compile(r"暗渠|排水|雨水|幹線|下水")
+ROAD_CATEGORIES = (9, 10, 11)
+JUNCTION_MAX_EM = 9.0  # IC・JCT の名前の札の幅の上限 (字の幅の合計、em。札の 幅 / 高さ は 8 倍までしか焼けない)
+JUNCTION_MAX_CHARS = 12  # 札のレコードを探す範囲 (シェーダーの VmtPlateBottom) に収まる字数
+# 道路番号の看板 (Issue #83)。番号の前に看板のレコードを 1 つ置き、シェーダーが種類の色の図形を描いて、その上に番号を白で描く。
+# 寸法は字の大きさ (em = size px) を単位にし、番号のインクの中心が原点、+y が下。形ごとに:
+#   0 = 角の丸い長方形 (NEXCO などの高速の E 番号)、1 = おにぎり (国道。角の丸い逆三角で辺がふくらむ)、
+#   2 = 横長の六角形 (都道府県道)、3 = 上が平らで下が丸い形 (首都高・阪神高速などの都市高速)
+#   pad = 番号の幅に足す幅、minw = 最小の幅、h = 高さ、yoff = 看板の中心の縦のずれ (おにぎりは番号を気持ち上に置く。シェーダーの VMT_ONIGIRI_YOFF と同じ割合)
+ROAD_PLATES = {
+    0: {"pad": 0.6, "minw": 1.3, "h": 1.2, "yoff": 0.0},
+    1: {"pad": 1.0, "minw": 2.0, "h": 1.95, "yoff": 0.14},
+    2: {"pad": 1.0, "minw": 1.9, "h": 1.3, "yoff": 0.0},
+    3: {"pad": 0.7, "minw": 1.5, "h": 1.5, "yoff": 0.14},
+}
+ROAD_DEFAULT_PLATE = {9: 0, 10: 1, 11: 2, 12: 0}  # 種類ごとの看板の形 (高速は路線網で 0 と 3 を分ける。road_category)
+# 線の名前 (道路名・路線名) の向き。字レコードの T2 のビット 18..21 に 向きの番号 + 1 を入れる (0 = 回さない。ほかのラベル)。
+# 向きは 0..180° を LINE_ROT_STEPS 段 (12° 刻み) にしたもの。文字コードは U+3FFFF まで (ビット 0..17) なので重ならない。
+# シェーダー (VmtCore.cginc の VmtResolveGlyphLabel) が 2D のときだけ、見る人に逆さまにならない向きで回す
+LINE_ROT_SHIFT = 18
+LINE_ROT_STEPS = 15
+PLATE_FLAG = 0x400000  # 字レコードの T2 のこのビットが立っていれば看板 (文字コードは 0x10FFFF まで、0x800000 は古いタイルのアトラスの番号)
+
+
+def plate_dims(lab):
+    """道路番号の看板の (幅, 高さ, 縦のずれ, 形) (512px のタイルでの px)。看板の無いラベルは None。"""
+    if lab.get("cat") not in ROAD_DEFAULT_PLATE:
+        return None
+    shape = lab.get("plate", ROAD_DEFAULT_PLATE[lab["cat"]])
+    pl = ROAD_PLATES[shape]
+    em = float(lab["size"])
+    tw = sum(lab["advs"]) / em
+    return max(tw + pl["pad"], pl["minw"]) * em, pl["h"] * em, pl["yoff"] * em, shape
+_ROAD_EXPRESSWAY_REF = re.compile(r"^[A-Z]{0,2}[0-9]{0,3}[A-Z]?$")
+_ROAD_NUMBER_REF = re.compile(r"^[0-9]{1,3}$")
+_URBAN_EXPRESSWAYS = ("首都高速", "阪神高速", "名古屋高速", "福岡高速", "北九州高速", "広島高速", "京都高速")
+_ROAD_NAME_SUFFIX = ("道路", "自動車道", "線", "バイパス", "道")  # 路線の名前らしい終わり (出入口のランプの「錦糸町」「和光IC」などと分ける)
 POI_MAX_CHARS = 16  # これより長い名前の POI は載せない
 _POI_SKIP_SUFFIX = ("交番", "駐在所")  # 数が多く、観光の役に立たない
 _POI_SIGHT = {"attraction", "museum", "zoo", "aquarium", "theme_park", "castle", "monument", "viewpoint"}
-_POI_PUBLIC = {"town_hall", "police", "fire_station", "college"}
+_POI_PUBLIC = {"town_hall", "police", "fire_station",
+               # 運動施設とホール (Issue #92)。sports_centre には民間の店 (ゴルフの練習場など) も混ざるが、区別しにくいので全部入れる
+               "sports_centre", "stadium", "swimming_pool", "theatre"}
 _POI_FOOD = {"restaurant", "cafe", "fast_food", "bar", "beer", "ice_cream", "bakery"}
 _POI_SHOP = {"shop", "grocery", "clothing_store", "alcohol_shop", "pharmacy", "jewelry", "music", "mobile_phone",
              "department_store"}
@@ -154,8 +250,10 @@ def poi_category(props):
         return 3
     if cls in ("park", "garden"):
         return 4
+    if cls == "school" or cls == "college":  # school = 小中高・幼稚園・保育園、college = 大学・専門学校
+        return 15
     if cls in _POI_PUBLIC or (cls == "library" and sub == "library") or (cls == "post" and sub == "post_office") \
-            or (cls == "hospital" and sub == "hospital"):
+            or (cls == "hospital" and sub == "hospital") or (cls == "office" and sub == "government"):
         return 5
     if cls == "lodging":
         return 6
@@ -164,6 +262,176 @@ def poi_category(props):
     if cls in _POI_SHOP or (cls == "library" and sub == "books"):
         return 8
     return None
+
+
+def road_category(props):
+    """transportation_name レイヤーの線の道路番号の (種類, 番号, 看板の形)。載せないものは None。
+    路線網 (route_1_network) があればそれで決め、無ければ class で決める (日本の OSM では trunk = 国道、primary = 主要地方道、
+    secondary = 一般の都道府県道)。番号が複数 ("4;5") なら最初のもの (高速は E で始まる番号を優先する。淡路 SA のランプの
+    "28;E28" が「28」の都市高速の看板になっていた)。"""
+    ref = props.get("route_1_ref") or props.get("ref")
+    if not isinstance(ref, str):
+        return None
+    refs = [r.strip() for r in ref.split(";") if r.strip()]
+    if not refs:
+        return None
+    ref = refs[0]
+    net = props.get("route_1_network") or ""
+    cls = props.get("class")
+    if net == "JP:national":
+        cat = 10
+    elif net.startswith("JP:prefectural"):
+        cat = 11
+    elif net.startswith("JP:E") or "高速" in net or cls == "motorway":
+        cat = 9
+    elif cls == "trunk":
+        cat = 10
+    elif cls in ("primary", "secondary"):
+        cat = 11
+    else:
+        return None
+    if cat == 9:
+        ref = next((r for r in refs if r.startswith("E")), ref)
+    if cls not in ("motorway", "trunk", "primary", "secondary"):
+        return None  # 区道の番号 (tertiary の "L98" など) や、建設中の道路
+    if not (_ROAD_EXPRESSWAY_REF if cat == 9 else _ROAD_NUMBER_REF).match(ref):
+        return None
+    shape = ROAD_DEFAULT_PLATE[cat]
+    if cat == 9 and not ref.startswith("E"):
+        # 都市高速 (首都高・阪神高速・名古屋高速など) は下が丸い看板、NEXCO などの E 番号は長方形
+        name = props.get("name") or ""
+        if net:
+            if not net.startswith("JP:E") and "高速" in net:
+                shape = 3
+        elif any(name.startswith(n) for n in _URBAN_EXPRESSWAYS):
+            shape = 3
+        elif name and name.endswith(_ROAD_NAME_SUFFIX):
+            # 路線網の無い、高速道路の扱いの道路。番号が数字だけなら国道のバイパスなど (浜手バイパス = 国道 2 号、中山道 = 17 号)
+            # とみなしておにぎりにする (利用者の希望)。それ以外は長方形のまま
+            if _ROAD_NUMBER_REF.match(ref):
+                return 10, ref, ROAD_DEFAULT_PLATE[10]
+        else:
+            # 出入口のランプ (motorway_link。OpenMapTiles では class が motorway のまま) は出さない。「錦糸町」「和光IC」
+            # 「霞が関出口」などの名前のものは番号が出口の番号 (首都高の 701 など) のことが多く、名前の無いもの (阪神高速 3 号・
+            # 31 号、淡路 SA) は都市高速か NEXCO かを決められない (本線に同じ番号の看板がある)
+            return None
+    return cat, ref, shape
+
+
+def junction_name(props, lang):
+    """transportation_name の分岐点 (subclass = junction) の札に出す名前。載せないものは None。
+    「横浜港北JCT/横浜港北出口」のように並べたものは最初の名前だけ。「ジャンクション」は「JCT」に縮める。
+    IC や JCT の付かない名前 (首都高の「三軒茶屋」など) はそのまま (付け足すと首都高の呼び方と違う)。"""
+    if lang == "en":
+        name = props.get("name:en") or props.get("name:ja-Latn") or props.get("name")
+    else:
+        name = (props.get("name:" + lang) if lang else None) or props.get("name")
+    if not isinstance(name, str):
+        return None
+    name = re.split(r"[/／;]", name)[0]
+    # 全角の英数字 (「代々木ＰＡ」) は半角にする
+    name = re.sub("[Ａ-Ｚａ-ｚ０-９]+", lambda m: unicodedata.normalize("NFKC", m.group()), name)
+    name = name.replace("ジャンクション", "JCT").replace("Junction", "JCT")
+    # 首都高などの「一ツ橋出口」「芝公園入口」は、同じ所の「一ツ橋」と重なるので「出口・入口・出入口」を落とす
+    # (緑の札で高速の出入口だと分かる)。近くの同名は merge_labels が 1 つにする
+    name = re.sub(r"(出入口|出口|入口)$", "", name.strip())
+    name = re.sub(r"(?i)\s+(exit|entrance)$", "", name)
+    name = clean_label(name)
+    return name or None
+
+
+_ROAD_NAME_CLASSES = ("trunk", "primary", "secondary")
+NAME_MAX_CHARS = 12  # 道路名・路線名の字数の上限 (英語は倍)
+
+
+def line_label_name(props, lang):
+    """道路名・路線名の名前 (「;」で並べたものは最初、英字の括弧書きは落とす)。載せないものは None。"""
+    if lang == "en":
+        name = props.get("name:en") or props.get("name:ja-Latn") or props.get("name")
+    else:
+        name = (props.get("name:" + lang) if lang else None) or props.get("name")
+    if not isinstance(name, str):
+        return None
+    name = name.split(";")[0]
+    if lang != "en":
+        name = re.sub(r"\s*[(（][\x20-\x7e]*[)）]\s*", "", name)  # 「京王電鉄京王線 (Keio Railway Keio Line)」
+    name = re.sub(r"^[(（](.*)[)）]$", r"\1", name.strip())  # 「(高樹町)」
+    name = clean_label(name)
+    if not name or len(name) > (NAME_MAX_CHARS * 2 if lang == "en" else NAME_MAX_CHARS):
+        return None
+    if any(ord(ch) > 0x3FFFF for ch in name):  # 字レコードのビット 18.. は向きに使う
+        return None
+    return name
+
+
+def _line_chord(parts, span, samples=9):
+    """線 (部分ごとの点の列) のいちばん長い部分の上で、長さ span の弦がいちばん線に沿う (弦から線の点までの距離の最大が小さい)
+    所を選び、(弦の真ん中の x, y, 向きの番号 0..LINE_ROT_STEPS-1) を返す。向きは弦の向き (0..180°。y は下向き)。
+    部分が span より短ければ部分の両端を弦にする。同じくらい沿うなら部分の真ん中に近い所。"""
+    best = None
+    for pts in parts:
+        segs = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+        total = sum(segs)
+        if total > 0 and (best is None or total > best[2]):
+            best = (pts, segs, total)
+    if best is None:
+        return None
+    pts, segs, total = best
+    cum = [0.0]
+    for d in segs:
+        cum.append(cum[-1] + d)
+
+    def at(t):
+        t = min(max(t, 0.0), total)
+        for i, d in enumerate(segs):
+            if t <= cum[i + 1] and d > 0:
+                u = (t - cum[i]) / d
+                return pts[i][0] + (pts[i + 1][0] - pts[i][0]) * u, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * u
+        return pts[-1]
+
+    half = min(span, total) / 2.0
+    lo, hi = half, total - half
+    centers = [total / 2.0] if hi <= lo else [lo + (hi - lo) * k / (samples - 1) for k in range(samples)]
+    pick = None
+    for c in centers:
+        a, b = at(c - half), at(c + half)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n = math.hypot(dx, dy)
+        if n <= 0:
+            continue
+        dev = 0.0
+        for i in range(len(pts)):
+            if c - half < cum[i] < c + half:
+                dev = max(dev, abs((pts[i][0] - a[0]) * dy - (pts[i][1] - a[1]) * dx) / n)
+        key = (round(dev, 1), abs(c - total / 2.0))
+        if pick is None or key < pick[0]:
+            pick = (key, a, b)
+    if pick is None:
+        return None
+    _, a, b = pick
+    ang = math.atan2(b[1] - a[1], b[0] - a[0]) % math.pi
+    q = int(round(ang / (math.pi / LINE_ROT_STEPS))) % LINE_ROT_STEPS
+    return (a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, q
+
+
+def _line_midpoint(parts):
+    """線 (部分ごとの点の列) の長さで真ん中の点。いちばん長い部分の上に取る。"""
+    best, best_len = None, 0.0
+    for pts in parts:
+        segs = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
+        total = sum(segs)
+        if total > best_len:
+            best, best_len = (pts, segs, total), total
+    if best is None:
+        return None
+    pts, segs, total = best
+    half = total / 2.0
+    for i, d in enumerate(segs):
+        if half <= d and d > 0:
+            t = half / d
+            return pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t
+        half -= d
+    return pts[-1]
 
 
 def label_categories():
@@ -195,6 +463,15 @@ WIDE_KINDS = {
 }
 WIDE_OSM_PLACE = {"island"}                                  # place レイヤーの class
 WIDE_OSM_WATER = {"ocean", "sea", "bay", "strait", "lake"}   # water_name レイヤーの class
+# 広域の地図の山・海・湖・川 (都市の床と同じ種類 16〜18。タブレットの「自然」で出し入れする)。(優先度, 字の大きさ)。
+# 優先度は WIDE_KINDS と同じ尺度。海は陸の地名とぶつかりにくいので先に、湾・湖・山は町の後、川は駅の後
+WIDE_NATURE = {
+    "sea": (2.5, 13),    # water_name の ocean / sea
+    "bay": (4.5, 12),    # bay / strait
+    "lake": (4.5, 12),
+    "peak": (4.5, 11),   # mountain_peak (標高のあるもの)。高い山から
+    "river": (6.5, 11),  # waterway の class river の線の名前。線に沿わせる
+}
 
 
 def _foreign_script(name):
@@ -750,6 +1027,18 @@ def glyph_ink_center(ch):
 _CHOME = re.compile(r"^(.+?)[一二三四五六七八九十〇0-9０-９]+丁目$")
 
 
+def peak_marked(lab):
+    """山頂の印の付いたラベル (印を基準点に、名前を 1 行上に置く) か。それ以外のラベルは文字列の真ん中が基準点。"""
+    return lab.get("cat") == 16 and lab["name"].startswith(PEAK_MARK)
+
+
+def peak_name(name, ele):
+    """山頂のラベルの文字列 (「▲枡形山 84m」)。字レコードのビット 18.. を使うので、U+3FFFF を超える字のある名前は None。"""
+    if any(ord(ch) > 0x3FFFF for ch in name):
+        return None
+    return "%s%s %dm" % (PEAK_MARK, name, int(round(ele)))
+
+
 def _unit_m(z, lat):
     """ズーム z でのタイル単位 1 つの長さ (m)。"""
     return 40075016.686 * math.cos(math.radians(lat)) / (1 << z) / EXTENT
@@ -759,12 +1048,18 @@ def label_candidates(db, z, tiles):
     """ズーム z の全タイルから地名と POI の候補を集める。座標はズーム z 全体でのタイル単位 (タイル x * 4096 + タイル内 x)。"""
     lang = LABEL_CONFIG["lang"]
     layers = ("place", "poi") if LABEL_CONFIG.get("poi", True) else ("place",)
+    roads = LABEL_CONFIG.get("poi", True)
     cands = []
     for tx, ty in tiles:
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=layers)
+        decoded = decode_mvt(data, only=layers + (("transportation_name", "sapa", "railname", "mountain_peak", "water_name",
+                                                   "waterway") if roads else ()))
+        if roads:
+            road_candidates(decoded.get("transportation_name"), z, tx, ty, cands)
+            extra_candidates(decoded, z, tx, ty, cands)
+            nature_candidates(decoded, z, tx, ty, cands)
         for lname in layers:
             layer = decoded.get(lname)
             if not layer:
@@ -803,6 +1098,8 @@ def label_candidates(db, z, tiles):
                             or str(props.get("name", "")).endswith(_POI_SKIP_SUFFIX):
                         continue
                     size, pri, margin = pc["size"], pc.get("pri14", pc["pri"]) if z >= 14 else pc["pri"], pc["margin"]
+                    if cat == 15 and props.get("subclass") == "kindergarten":
+                        pri = pc["pri_kindergarten"]
                 x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
                 if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある点は隣のタイルが持っている
                     continue
@@ -811,6 +1108,217 @@ def label_candidates(db, z, tiles):
                               "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
                               "size": size, "margin": margin * LABEL_CONFIG["spacing"]})
     return cands
+
+
+def road_candidates(layer, z, tx, ty, cands):
+    """道路番号の候補 (POI_CATEGORIES の 9..11) と IC・JCT の名前の候補 (12) を cands に足す。
+    同じ番号・名前の近いものは merge_labels が 1 つにする。"""
+    if not layer:
+        return
+    scale = EXTENT / float(layer["extent"])
+    jc = POI_CATEGORIES[12]
+    for feat in layer["features"]:
+        if feat["type"] == 1 and feat["geom"] and feat["props"].get("subclass") == "junction" and z >= jc["minz"]:
+            name = junction_name(feat["props"], LABEL_CONFIG["lang"])
+            if name is None or len([ch for ch in name if not ch.isspace()]) > JUNCTION_MAX_CHARS \
+                    or sum(glyph_advance(ch) for ch in name) / float(LABEL_FONT_PX) > JUNCTION_MAX_EM:
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            cands.append({"pri": jc["pri"], "rank": 99, "name": name, "cat": 12, "x": tx * EXTENT + x,
+                          "y": ty * EXTENT + y, "size": jc["size"], "margin": jc["margin"] * LABEL_CONFIG["spacing"]})
+            continue
+        if feat["type"] != 2 or not feat["geom"]:
+            continue
+        if feat["props"].get("class") in _ROAD_NAME_CLASSES and feat["props"].get("subclass") != "junction":
+            line_name_candidate(feat, 13, scale, z, tx, ty, cands)
+        rc = road_category(feat["props"])
+        if rc is None:
+            continue
+        cat, ref, shape = rc
+        pc = POI_CATEGORIES[cat]
+        if z < pc.get("minz", 0):
+            continue
+        mid = _line_midpoint(feat["geom"])
+        if mid is None:
+            continue
+        x, y = mid[0] * scale, mid[1] * scale
+        if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
+            continue
+        c = {"pri": pc["pri"], "rank": 99, "name": ref, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+             "size": pc["size"], "margin": pc["margin"] * LABEL_CONFIG["spacing"]}
+        if "kcap" in pc:
+            c["kcap"] = pc["kcap"]
+        c["repeat"] = pc["repeat"]
+        if shape != ROAD_DEFAULT_PLATE[cat]:
+            c["plate"] = shape
+        cands.append(c)
+
+
+def line_name_candidate(feat, cat, scale, z, tx, ty, cands, pri=None, size=None, margin=None):
+    """線の名前 (道路名 13・路線名 14・川 18) の候補を線の真ん中に足す。pri / size / margin は種類の既定を替えるとき (広域の地図)。"""
+    pc = POI_CATEGORIES[cat]
+    if pri is None and z < pc.get("minz", 0):
+        return
+    pri = pc["pri"] if pri is None else pri
+    size = pc["size"] if size is None else size
+    margin = pc["margin"] if margin is None else margin
+    name = line_label_name(feat["props"], LABEL_CONFIG["lang"])
+    if name is None:
+        return
+    # 名前の長さ (倍率 1 のとき、レイヤーの座標の単位)。この長さの弦がいちばん線に沿う所に、弦の向きで置く
+    width = sum(glyph_advance(ch) for ch in name) * size / float(LABEL_FONT_PX) * (EXTENT / 512.0) / scale
+    placed = _line_chord(feat["geom"], width)
+    if placed is None:
+        return
+    x, y = placed[0] * scale, placed[1] * scale
+    if not (0 <= x < EXTENT and 0 <= y < EXTENT):  # 余白にある線は隣のタイルが持っている
+        return
+    cands.append({"pri": pri, "rank": 99, "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                  "size": size, "margin": margin * LABEL_CONFIG["spacing"], "repeat": pc["repeat"],
+                  "rot": placed[2] + 1})
+
+
+def extra_candidates(decoded, z, tx, ty, cands):
+    """配信側が planetiler の独自スキーマで足したレイヤー (sapa = SA・PA の点、railname = 線路の線) の候補。
+    無いタイル (古い MBTiles、z14 より下) では何もしない。"""
+    layer = decoded.get("sapa")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        jc = POI_CATEGORIES[12]
+        for feat in layer["features"]:
+            if feat["type"] != 1 or not feat["geom"] or z < jc["minz"]:
+                continue
+            name = sapa_name(feat["props"], LABEL_CONFIG["lang"])
+            if name is None:
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            cands.append({"pri": jc["pri"], "rank": 99, "name": name, "cat": 12, "x": tx * EXTENT + x,
+                          "y": ty * EXTENT + y, "size": jc["size"], "margin": jc["margin"] * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("railname")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        for feat in layer["features"]:
+            if feat["type"] != 2 or not feat["geom"]:
+                continue
+            if feat["props"].get("usage") in ("military", "industrial"):
+                continue  # 工場や基地の中の線路 (貨物線は出す。利用者の判断)
+            line_name_candidate(feat, 14, scale, z, tx, ty, cands)
+
+
+def _nature_name(props, lang):
+    """山頂・水の名前の名前。元の名前 (name) が英字だけのもの (「toilette」「Horizon Bay」など、日本の地物ではない名前) は載せない。"""
+    local = props.get("name")
+    if not isinstance(local, str) or all(ord(ch) < 0x80 for ch in local):
+        return None
+    if lang == "en":
+        name = props.get("name:en") or props.get("name:ja-Latn") or local
+    else:
+        name = (props.get("name:" + lang) if lang else None) or local
+    name = clean_label(name.split(";")[0])
+    if not name or len(name) > (POI_MAX_CHARS * 2 if lang == "en" else POI_MAX_CHARS):
+        return None
+    return name
+
+
+def nature_candidates(decoded, z, tx, ty, cands):
+    """山頂 (16)・海と湖 (17)・川 (18) の名前の候補を cands に足す (OpenMapTiles の mountain_peak / water_name / waterway)。"""
+    lang = LABEL_CONFIG["lang"]
+    layer = decoded.get("mountain_peak")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pc = POI_CATEGORIES[16]
+        for feat in layer["features"]:
+            props = feat["props"]
+            ele = props.get("ele")
+            if feat["type"] != 1 or not feat["geom"] or props.get("class") not in _PEAK_CLASSES \
+                    or not isinstance(ele, (int, float)) or ele <= 0:
+                continue  # 標高の無いものは「〜坂」の取り違えなどが多い
+            name = _nature_name(props, lang)
+            if name is None:
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            label = peak_name(name, ele)
+            if label is None:
+                continue
+            cands.append({"pri": pc["pri"], "rank": -float(ele), "name": label, "cat": 16,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": pc["size"],
+                          "margin": pc["margin"] * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("water_name")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pc = POI_CATEGORIES[17]
+        for feat in layer["features"]:
+            props = feat["props"]
+            cls = props.get("class")
+            sea = cls in _WATER_SEA_CLASSES
+            if feat["type"] not in (1, 2) or not feat["geom"] or not (sea or cls in _WATER_LAKE_CLASSES):
+                continue
+            name = _nature_name(props, lang)
+            local = props.get("name")
+            if name is None or _WATER_SKIP.search(local) or local in _WATER_SKIP_NAMES:
+                continue
+            if not sea and local.endswith(("川", "河")):
+                continue  # 川の水面 (多摩川・荒川など)。川の名前 (18) が線に沿って出す
+            pt = feat["geom"][0][0] if feat["type"] == 1 else _line_midpoint(feat["geom"])
+            if pt is None:
+                continue
+            x, y = pt[0] * scale, pt[1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            rank = props.get("rank", 99)
+            cands.append({"pri": pc["pri"] if sea else pc["pri_lake"],
+                          "rank": rank if isinstance(rank, (int, float)) else 99, "name": name, "cat": 17,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": pc["size_sea"] if sea else pc["size"],
+                          "margin": pc["margin"] * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("waterway")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        for feat in layer["features"]:
+            props = feat["props"]
+            if feat["type"] != 2 or not feat["geom"] or props.get("brunnel") == "tunnel":
+                continue  # 暗渠
+            cls = props.get("class")
+            if cls not in _RIVER_CLASSES or (z < 14 and cls != "river"):
+                continue
+            local = props.get("name")
+            if not isinstance(local, str) or _RIVER_SKIP.search(local):
+                continue
+            line_name_candidate(feat, 18, scale, z, tx, ty, cands)
+
+
+_SAPA_SUFFIX = re.compile(r"(SA|PA)$")
+
+
+def sapa_name(props, lang):
+    """SA・PA の札に出す名前。名前が SA・PA で終わるもの (サービスエリア・パーキングエリアは縮める) だけ。
+    「(上り)」「(内回り)」などの向きは落とす (上下線の点を merge_labels が 1 つにする)。道の駅や公園の休憩所は載せない。"""
+    ja = props.get("name:ja") or props.get("name")
+    if not isinstance(ja, str):
+        return None
+    ja = ja.split(";")[0]
+    ja = re.sub("[Ａ-Ｚａ-ｚ０-９（）]+", lambda m: unicodedata.normalize("NFKC", m.group()), ja)
+    ja = re.sub(r"\s*\([^)]*\)\s*$", "", ja).strip()
+    ja = ja.replace("サービスエリア", "SA").replace("パーキングエリア", "PA")
+    if not _SAPA_SUFFIX.search(ja):
+        return None
+    if lang == "en":
+        name = props.get("name:en")
+        if not isinstance(name, str):
+            return junction_name({"name": ja}, None)
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", name.split(";")[0]).strip()
+    else:
+        name = ja
+    name = clean_label(name)
+    if not name or len([ch for ch in name if not ch.isspace()]) > JUNCTION_MAX_CHARS \
+            or sum(glyph_advance(ch) for ch in name) / float(LABEL_FONT_PX) > JUNCTION_MAX_EM:
+        return None
+    return name
 
 
 def _unit_y(z, y):
@@ -827,8 +1335,52 @@ def _tile_units(lon, lat, z):
     return (lon + 180.0) / 360.0 * n, (1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * n
 
 
+def _has_japanese(name):
+    """かな・漢字を含むか (広域の地図で、Natural Earth 由来のローマ字の川の名前などを載せないため)。"""
+    return any("\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff"
+               or 0x20000 <= ord(ch) <= 0x3FFFF for ch in name)
+
+
+def wide_nature_candidates(decoded, z, tx, ty, cands):
+    """広域の地図の山頂 (16) と川 (18) の候補を cands に足す (海・湖 (17) は wide_candidates が OSM の水の名前と一緒に作る)。"""
+    layer = decoded.get("mountain_peak")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pri, size = WIDE_NATURE["peak"]
+        for feat in layer["features"]:
+            props = feat["props"]
+            ele = props.get("ele")
+            if feat["type"] != 1 or not feat["geom"] or props.get("class") not in _PEAK_CLASSES \
+                    or not isinstance(ele, (int, float)) or ele <= 0:
+                continue
+            name = _nature_name(props, "ja")
+            if name is None or not _has_japanese(name) or _foreign_script(name):
+                continue
+            x, y = feat["geom"][0][0][0] * scale, feat["geom"][0][0][1] * scale
+            if not (0 <= x < EXTENT and 0 <= y < EXTENT):
+                continue
+            label = peak_name(name, ele)
+            if label is None:
+                continue
+            cands.append({"pri": pri, "rank": -float(ele), "name": label, "cat": 16,
+                          "x": tx * EXTENT + x, "y": ty * EXTENT + y, "size": size,
+                          "margin": 4 * LABEL_CONFIG["spacing"]})
+    layer = decoded.get("waterway")
+    if layer:
+        scale = EXTENT / float(layer["extent"])
+        pri, size = WIDE_NATURE["river"]
+        for feat in layer["features"]:
+            props = feat["props"]
+            if feat["type"] != 2 or not feat["geom"] or props.get("class") != "river" or props.get("brunnel") == "tunnel":
+                continue
+            local = props.get("name:ja") or props.get("name")
+            if not isinstance(local, str) or not _has_japanese(local) or _RIVER_SKIP.search(local):
+                continue
+            line_name_candidate(feat, 18, scale, z, tx, ty, cands, pri=pri, size=size, margin=4)
+
+
 def wide_candidates(db, z, tiles):
-    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖)。優先度順に並べて返す。"""
+    """広域の地図の地名の候補 (LABEL_CONFIG["wide"] の点と、OpenStreetMap の島・海・湖・山頂・川)。優先度順に並べて返す。"""
     inside = set(tiles)
     cands = []
     names = set()
@@ -848,7 +1400,8 @@ def wide_candidates(db, z, tiles):
         data = read_tile(db, z, tx, ty)
         if not data:
             continue
-        decoded = decode_mvt(data, only=("place", "water_name"))
+        decoded = decode_mvt(data, only=("place", "water_name", "mountain_peak", "waterway"))
+        wide_nature_candidates(decoded, z, tx, ty, cands)
         for lname, classes in (("place", WIDE_OSM_PLACE), ("water_name", WIDE_OSM_WATER)):
             layer = decoded.get(lname)
             if not layer:
@@ -865,15 +1418,22 @@ def wide_candidates(db, z, tiles):
                 name = clean_label(name)
                 if not name or name in names or name in seen:
                     continue
+                c_cat, c_size, c_pri = cat, size, pri
+                if lname == "water_name":  # 海・湖は「自然」の種類 (以前は地名と同じ種類 0 だった)
+                    if isinstance(local, str) and (_WATER_SKIP.search(local) or local in _WATER_SKIP_NAMES):
+                        continue
+                    kind = {"ocean": "sea", "sea": "sea", "lake": "lake"}.get(props.get("class"), "bay")
+                    c_cat = 17
+                    c_pri, c_size = WIDE_NATURE[kind]
                 # 点ならその点、線 (湖の中心線) なら最初の線の真ん中の点
                 line = feat["geom"][0]
                 x, y = line[len(line) // 2][0] * scale, line[len(line) // 2][1] * scale
                 if not (0 <= x < EXTENT and 0 <= y < EXTENT):
                     continue
                 seen.add(name)
-                cands.append({"pri": pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
-                              "name": name, "cat": cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
-                              "size": size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
+                cands.append({"pri": c_pri, "rank": props.get("rank", 99) if isinstance(props.get("rank"), (int, float)) else 99,
+                              "name": name, "cat": c_cat, "x": tx * EXTENT + x, "y": ty * EXTENT + y,
+                              "size": c_size, "margin": margin * LABEL_CONFIG["spacing"], "osm": True})
     cands.sort(key=lambda c: (c["pri"], c["rank"], c["name"], c["x"], c["y"]))
     return cands
 
@@ -969,12 +1529,29 @@ def place_labels(cands, fixed=()):
     hw = [0.0] * n
     hh = [0.0] * n
     mg = [0.0] * n
+    rp = [0.0] * n  # 同じ種類・同じ名前をこの距離 (倍率 1 のとき) 以内に置かない (道路番号)
     for i, c in enumerate(cands):
         k = c["size"] / float(LABEL_FONT_PX)
         c["advs"] = [glyph_advance(ch) * k for ch in c["name"]]
         hw[i] = sum(c["advs"]) / 2 * px
         hh[i] = c["size"] * 0.6 * px
+        if peak_marked(c):
+            # 基準点は印 (▲) の真ん中で、名前はその 1 行上。箱は基準点を中心に上下対称なので、縦は名前の上の端までを半分の高さにする
+            # (下の半分は印の分より大きく、余分に空ける)。横は名前の幅 (印は名前より狭い)
+            hw[i] = sum(c["advs"][1:]) / 2 * px
+            hh[i] = (PEAK_NAME_DY * LABEL_CELL / LABEL_FONT_PX + 0.6) * c["size"] * px
+        plate = plate_dims(c)
+        if plate is not None:  # 道路番号は看板の大きさで重なりを調べる
+            hw[i] = plate[0] / 2 * px
+            hh[i] = (plate[1] / 2 + abs(plate[2])) * px
+        if c.get("rot"):
+            # 線の向きに回す名前 (2D) は回した箱を囲む四角、3D (「線の名前」= 3D) では回さない元の箱で描くので、両方を囲む大きさで調べる
+            # (回した箱だけだと、斜めの線の名前の横幅を狭く見積もり、3D で重なる名前が同時に出た。Codex のレビュー (PR #87) で指摘)
+            a = (c["rot"] - 1) * math.pi / LINE_ROT_STEPS
+            ca, sa = abs(math.cos(a)), abs(math.sin(a))
+            hw[i], hh[i] = max(hw[i], ca * hw[i] + sa * hh[i]), max(hh[i], sa * hw[i] + ca * hh[i])
         mg[i] = c["margin"] * px
+        rp[i] = c.get("repeat", 0) * px
     # 箱の半径 (向きを問わない)。重なりうるのは中心どうしが (r_j + r_i + 余白_i) 未満のときだけ
     rad = [max(hw[i], hh[i]) for i in range(n)]
     rmax = max(rad)
@@ -995,14 +1572,20 @@ def place_labels(cands, fixed=()):
             if k_index(c["kmin"], False) <= si <= k_index(c["kmax"], True):
                 grid.setdefault((int(xs[i] // cell), int(ys[i] // cell)), []).append(i)
         for i in range(nf, n):
+            if k > cands[i].get("kcap", LABEL_SCALE_STEPS):  # 道路番号の都道府県道などは、拡大したときだけ
+                continue
             gx, gy = int(xs[i] // cell), int(ys[i] // cell)
-            r = int(math.ceil((rad[i] + rmax + mg[i]) * s / cell))
+            r = int(math.ceil((rad[i] + rmax + max(mg[i], rp[i])) * s / cell))
             hit = False
             for cx in range(gx - r, gx + r + 1):
                 for cy in range(gy - r, gy + r + 1):
                     for j in grid.get((cx, cy), ()):
                         dx = abs(xs[j] - xs[i])
                         dy = abs(ys[j] - ys[i])
+                        if rp[i] and cands[j]["cat"] == cands[i]["cat"] and cands[j]["name"] == cands[i]["name"] \
+                                and dx * dx + dy * dy < (rp[i] * s) ** 2:
+                            hit = True
+                            break
                         # 既に置いたラベルの箱 (余白なし) と、自分の箱を余白ぶん広げたもの
                         w = (hw[j] + hw[i] + mg[i]) * s
                         h = (hh[j] + hh[i] + mg[i]) * s
@@ -1137,15 +1720,34 @@ def build_glyph_labels(planned, z, tx, ty, used=None):
     count = 0
     for lab in planned:
         chars = [ch for ch in lab["name"] if not ch.isspace()]
-        if 12 * (len(out) + len(chars)) > LABEL_CONFIG["verts"]:
+        plate = plate_dims(lab)
+        if 12 * (len(out) + len(chars) + (plate is not None)) > LABEL_CONFIG["verts"]:
             continue
         x, y = lab["x"] - tx * EXTENT, lab["y"] - ty * EXTENT
         k = lab["size"] / float(LABEL_FONT_PX)
         side = LABEL_CELL * k * px
-        pen = -sum(lab["advs"]) / 2
-        for ch, adv in zip(lab["name"], lab["advs"]):
+        if plate is not None:
+            # 看板のレコード: 箱の一辺 = 看板の高さ、字 = PLATE_FLAG | 形 << 20 | (縦のずれ / 高さ * 128 + 128) << 10 | 幅 / 高さ * 128
+            pw, ph, py, shape = plate
+            ratio = int(min(max(round(pw / ph * 128), 1), 1023))
+            yq = int(min(max(round(py / ph * 128) + 128, 0), 255))
+            g = PLATE_FLAG | (shape << 20) | (yq << 10) | ratio
+            out.append((x, y, 0.0, 0.0, g, ph * px, lab["kmin"], lab["kmax"], lab.get("cat", 0)))
+        name, advs, up = lab["name"], lab["advs"], 0
+        if peak_marked(lab):
+            # 山頂: 印 (▲) を基準点 (山頂の点) に小さめに置き、名前はその 1 行上に真ん中そろえ (シェーダーが上へずらす)
+            if used is not None:
+                used.add(PEAK_MARK)
+            out.append((x, y, 0.0, 0.0, ord(PEAK_MARK), side * PEAK_MARK_SCALE, lab["kmin"], lab["kmax"], 16))
+            name, advs, up = name[1:], advs[1:], PEAK_NAME_UP
+        pen = -sum(advs) / 2
+        for ch, adv in zip(name, advs):
             if not ch.isspace():
                 g = ord(ch)  # 文字コード (ワールドの表でアトラスのマスを引く)
+                if lab.get("rot"):
+                    g |= int(lab["rot"]) << LINE_ROT_SHIFT  # 線の向き (向きの番号 + 1)
+                elif up:
+                    g |= up << LINE_ROT_SHIFT  # 山頂の名前の「1 行上」
                 if used is not None:
                     used.add(ch)
                 cx = (pen + glyph_ink_center(ch) * k) * px

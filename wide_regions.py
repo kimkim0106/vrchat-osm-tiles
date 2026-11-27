@@ -16,7 +16,7 @@
   tileSize (1 枚の大きさ) は記録用 (Unity で床マップを作るときに渡す)。焼くときには使わない。
 
 地名は wide_labels.py の点 (labels/wide_japan.json)、境界線は都道府県境 (admin_level 4) の陸上の線だけ、
-1 タイルのラベル頂点の上限は LABEL_VERTS (都市の床の 3 倍。関東を含むタイルは自治体の名前だけで 1,200 字ほどになる)。
+1 タイルのラベル頂点の上限は LABEL_VERTS (都市の床の 6 倍。関東を含むタイルは自治体の名前だけで 1,200 字ほどになる)。
 シートごとの .bin (binZooms) は作らない (Pages の容量を空けるため。関東地方で PNG 23 MB に対して .bin 25 MB)。
 String Loading で取るのは R2 のまとめた .bin (binGroups。PNG から作る) だけで、R2 を読めない人は PNG を取る。
 """
@@ -31,7 +31,7 @@ REGIONS = os.path.join(HERE, "regions.json")
 FLOOR_W, FLOOR_H = 20.0, 22.0
 MIN_TILE = 1.4
 JAPAN_ZOOM = 7
-LABEL_VERTS = 49140
+LABEL_VERTS = 98280  # 2026-11-24 に 49140 から上げた (日本全体の関東・近畿のタイルが埋まり、山・川を足すと駅が落ちるため)
 AMAMI = ["46222"] + [f"465{i}" for i in range(23, 36)]  # 奄美市と大島郡の町村
 TOKARA = ["46304"]                                      # 十島村
 OGASAWARA = ["13421"]

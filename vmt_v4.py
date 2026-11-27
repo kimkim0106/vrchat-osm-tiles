@@ -209,9 +209,10 @@ def mbtiles_for(region, given, tools, work, java_mem):
 
 # ---------------------------------------------------------------- 1. 候補
 
-def candidates(region, mbtiles, tiles):
-    """持ち物のタイルのラベルの候補。{"region", "wide", "langs", "zooms": {z: [言語ごとの候補のリスト]}}。"""
-    langs = label_setup(region)
+def candidates(region, mbtiles, tiles, tools=None):
+    """持ち物のタイルのラベルの候補。{"region", "wide", "langs", "zooms": {z: [言語ごとの候補のリスト]}}。
+    線の名前の長さや IC・JCT の名前の幅を測るので、配置・焼き込みと同じフォント (tools の Noto) を使う。"""
+    langs = label_setup(region, tools)
     vb = _vb()
     db = sqlite3.connect(f"file:{mbtiles}?mode=ro", uri=True)
     zooms = {}
@@ -233,6 +234,9 @@ def candidates(region, mbtiles, tiles):
 # ---------------------------------------------------------------- 2. 配置
 
 LABEL_FIELDS = ("name", "x", "y", "size", "margin", "cat", "pri", "rank", "kmin", "kmax")
+# あるときだけ渡す欄 (道路番号。Issue #83 (ワールド側)): plate = 看板の形 (種類の既定と違うとき)、repeat / kcap = 置き方、
+# rot = 線の名前 (道路名・路線名。ワールド側 Issue #86) の向きの番号 + 1
+LABEL_OPTIONAL_FIELDS = ("plate", "repeat", "kcap", "rot")
 
 
 def place_all(regions, inventory, cand_files, frozen_files, tools):
@@ -294,7 +298,9 @@ def place_all(regions, inventory, cand_files, frozen_files, tools):
             per_lang = plans[owner].setdefault(f"{t[0]}/{t[1]}/{t[2]}", [[] for _ in range(li + 1)])
             while len(per_lang) <= li:
                 per_lang.append([])
-            per_lang[li].append({k: c[k] for k in LABEL_FIELDS})
+            lab = {k: c[k] for k in LABEL_FIELDS}
+            lab.update({k: c[k] for k in LABEL_OPTIONAL_FIELDS if k in c})
+            per_lang[li].append(lab)
             count += 1
         print(f"{'wide' if wide else 'city'} z{z} lang {li}: candidates {len(cands)}, fixed {len(fx)}, "
               f"placed {count} (dropped {dropped})", flush=True)
@@ -564,7 +570,7 @@ def main():
     elif args.mode == "candidates":
         r = find(regions, args.region)
         mb = mbtiles_for(r, args.mbtiles, args.tools, args.work, args.java_mem)
-        dump_gz(os.path.join(args.out, f"{r['name']}.json.gz"), candidates(r, mb, owned(regions, inventory, r["name"])))
+        dump_gz(os.path.join(args.out, f"{r['name']}.json.gz"), candidates(r, mb, owned(regions, inventory, r["name"]), args.tools))
     elif args.mode == "labels":
         cand_files = sorted(glob.glob(os.path.join(args.cands, "*.json.gz")))
         frozen = sorted(glob.glob(os.path.join(args.frozen, "*.labels.json.gz"))) if args.frozen else []
